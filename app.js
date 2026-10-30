@@ -42,6 +42,7 @@ const ui = {
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
   btnInstallHide: $('btnInstallHide'), nameIn: $('nameIn'),
   routeRow: $('routeRow'), btnEarpiece: $('btnEarpiece'), btnSpeaker: $('btnSpeaker'),
+  voice: $('voiceBtn'), voiceFace: $('voiceFace'), voiceName: $('voiceName'),
   resumeBar: $('resumeBar'), resumeText: $('resumeText'),
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
@@ -57,12 +58,14 @@ let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
 let route = 'earpiece';
+let micDest = null, voice = 'off', voiceNodes = [];
+let voiceTapTimer = 0, lastVoiceTap = 0, pingTaps = [];
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
 let scanning = false, scanStream = null, jsqrLoad = null;
 let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
-let pingSeq = 0, duckTimer = 0, holdTimer = 0, urgentArmed = false;
+let pingSeq = 0, duckTimer = 0, holdTimer = 0, alarmTimer = 0, urgentArmed = false;
 let helpReturn = 'setup', volumeWorks = false;
 let lastLost = null, lastRecv = null;
 
@@ -236,13 +239,23 @@ function blip(ctx, f, t0, dur, amp) {
   o.stop(t0 + dur + 0.02);
 }
 
-function playPing(urgent) {
+function playPing(level) {
   const ctx = audio();
   if (!ctx) return;
-  const base = urgent ? 1046.5 : 880;
-  const offsets = urgent ? [0, 0.17, 0.34] : [0];
+  if (level >= 2) {
+    /* Hard to ignore on purpose: a rising pair repeated, over a second of it. */
+    const t = ctx.currentTime;
+    for (let i = 0; i < 5; i++) {
+      bell(ctx, 1174.7, t + i * 0.26);
+      bell(ctx, 1567.9, t + i * 0.26 + 0.11);
+    }
+    duck(1700);
+    return;
+  }
+  const base = level === 1 ? 1046.5 : 880;
+  const offsets = level === 1 ? [0, 0.17, 0.34] : [0];
   offsets.forEach(o => bell(ctx, base, ctx.currentTime + o));
-  duck(urgent ? 620 : 380);
+  duck(level === 1 ? 620 : 380);
 }
 
 function playRoger() {
@@ -403,14 +416,15 @@ async function ensureMic() {
       micGainNode.gain.value = micGain / 100;
       micAnalyser = ctx.createAnalyser();
       micAnalyser.fftSize = 512;
-      const dest = ctx.createMediaStreamDestination();
+      micDest = ctx.createMediaStreamDestination();
       ctx.createMediaStreamSource(micRaw).connect(micGainNode);
       micGainNode.connect(micAnalyser);
-      micGainNode.connect(dest);
-      micStream = dest.stream;
+      micGainNode.connect(micDest);
+      micStream = micDest.stream;
     } catch (e) {
       micGainNode = null;
       micAnalyser = null;
+      micDest = null;
       micStream = micRaw;
     }
   }
@@ -424,6 +438,147 @@ function setMicGain(v) {
   if (micGainNode) micGainNode.gain.value = micGain / 100;
   ui.micLvl.value = String(micGain);
   ui.micVal.textContent = String(micGain);
+}
+
+/* ---------------- voices ---------------- */
+
+/* Played with on the way out, so it is the other person who hears it. Web
+   Audio has no pitch shifter, so none of these transpose; they colour the
+   voice with ring modulation, filtering and distortion instead, which is
+   cheap, stable and still daft enough to be worth having. */
+const VOICES = [
+  { id: 'off',     face: '\u{1F610}', name: 'straight' },
+  { id: 'robot',   face: '\u{1F916}', name: 'robot'    },
+  { id: 'alien',   face: '\u{1F47D}', name: 'alien'    },
+  { id: 'radio',   face: '\u{1F4FB}', name: 'radio'    },
+  { id: 'monster', face: '\u{1F479}', name: 'monster'  },
+  { id: 'wobble',  face: '\u{1F974}', name: 'wobble'   }
+];
+
+function distortionCurve(amount) {
+  const n = 1024, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((1 + amount) * x) / (1 + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+/* Multiplying the signal by an oscillator - the gain node's own value sits at
+   zero and the oscillator drives it between -1 and 1. */
+function ringMod(ctx, hz, nodes) {
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  const osc = ctx.createOscillator();
+  osc.type = 'sine';
+  osc.frequency.value = hz;
+  osc.connect(g.gain);
+  osc.start();
+  nodes.push(osc, g);
+  return g;
+}
+
+function buildVoice(ctx, id) {
+  const nodes = [];
+  let input, output;
+
+  if (id === 'robot') {
+    input = output = ringMod(ctx, 48, nodes);
+
+  } else if (id === 'alien') {
+    const rm = ringMod(ctx, 190, nodes);
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 1.2;
+    rm.connect(bp);
+    nodes.push(bp);
+    input = rm; output = bp;
+
+  } else if (id === 'radio') {
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 400;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 2600;
+    const ws = ctx.createWaveShaper();
+    ws.curve = distortionCurve(12);
+    const trim = ctx.createGain();
+    trim.gain.value = 0.7;
+    hp.connect(lp); lp.connect(ws); ws.connect(trim);
+    nodes.push(hp, lp, ws, trim);
+    input = hp; output = trim;
+
+  } else if (id === 'monster') {
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 850;
+    const rm = ringMod(ctx, 22, nodes);
+    const ws = ctx.createWaveShaper();
+    ws.curve = distortionCurve(6);
+    const trim = ctx.createGain();
+    trim.gain.value = 1.3;
+    lp.connect(rm); rm.connect(ws); ws.connect(trim);
+    nodes.push(lp, ws, trim);
+    input = lp; output = trim;
+
+  } else if (id === 'wobble') {
+    /* Vibrato: a short delay whose length is wobbled by a slow oscillator. */
+    const dly = ctx.createDelay(0.05);
+    dly.delayTime.value = 0.012;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 5.5;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.004;
+    lfo.connect(depth); depth.connect(dly.delayTime);
+    lfo.start();
+    nodes.push(dly, lfo, depth);
+    input = output = dly;
+
+  } else {
+    return null;
+  }
+  return { input: input, output: output, nodes: nodes };
+}
+
+function voiceInfo(id) {
+  for (let i = 0; i < VOICES.length; i++) if (VOICES[i].id === id) return VOICES[i];
+  return VOICES[0];
+}
+
+function updateVoiceBtn() {
+  const v = voiceInfo(voice);
+  ui.voiceFace.textContent = v.face;
+  ui.voiceName.textContent = v.name;
+  ui.voice.setAttribute('aria-pressed', String(voice !== 'off'));
+  ui.voice.classList.toggle('on', voice !== 'off');
+}
+
+function setVoice(id) {
+  voice = id;
+  updateVoiceBtn();
+  if (!micGainNode || !micDest) return;
+
+  try { micGainNode.disconnect(); } catch (e) {}
+  voiceNodes.forEach(n => {
+    try { if (n.stop) n.stop(); } catch (e) {}
+    try { n.disconnect(); } catch (e) {}
+  });
+  voiceNodes = [];
+
+  let head = micGainNode;
+  if (id !== 'off') {
+    const built = buildVoice(actx, id);
+    if (built) {
+      micGainNode.connect(built.input);
+      head = built.output;
+      voiceNodes = built.nodes;
+    }
+  }
+  head.connect(micDest);
+  if (micAnalyser) head.connect(micAnalyser);
+}
+
+function cycleVoice() {
+  const i = VOICES.findIndex(v => v.id === voice);
+  setVoice(VOICES[(i + 1) % VOICES.length].id);
+  toast('Voice: ' + voiceInfo(voice).name, 1600);
 }
 
 /* ---------------- transmit gate ---------------- */
@@ -524,7 +679,11 @@ function wireChannel(channel) {
       if (spoke && !remoteLive && rogerBeep) playRoger();
       updateStatus();
     }
-    else if (m.t === 'ping') { receivePing(!!m.urgent); sendCtl({ t: 'ack', id: m.id }); }
+    else if (m.t === 'ping') {
+      const lvl = typeof m.level === 'number' ? m.level : (m.urgent ? 1 : 0);
+      receivePing(Math.max(0, Math.min(2, lvl)));
+      sendCtl({ t: 'ack', id: m.id });
+    }
     else if (m.t === 'name') { peerName = cleanName(m.name); updateNames(); }
     else if (m.t === 'reoffer') { takeReoffer(m.sdp); }
     else if (m.t === 'ask-reoffer') { attemptRecovery(true); }
@@ -833,28 +992,33 @@ async function takeReanswer(sdp) {
   settlePill();
 }
 
-function receivePing(urgent) {
-  playPing(urgent);
-  buzz(urgent ? [0, 130, 80, 130, 80, 220] : [0, 150]);
-  ui.flash.classList.toggle('urgent', urgent);
+function receivePing(level) {
+  playPing(level);
+  buzz(level >= 2 ? [0, 220, 90, 220, 90, 220, 90, 500]
+     : level === 1 ? [0, 130, 80, 130, 80, 220] : [0, 150]);
+  ui.flash.classList.toggle('urgent', level >= 1);
+  ui.flash.classList.toggle('alarm', level >= 2);
   ui.flash.hidden = true;
   void ui.flash.offsetWidth;
   ui.flash.hidden = false;
-  setTimeout(() => { ui.flash.hidden = true; }, 540);
-  toast(urgent ? 'Urgent ping' : 'Ping');
+  setTimeout(() => { ui.flash.hidden = true; }, level >= 2 ? 1700 : 540);
+  toast(level >= 2 ? 'ALARM' : level === 1 ? 'Urgent ping' : 'Ping',
+        level >= 2 ? 3000 : 2500);
 }
 
 let lastPingAt = 0;
-function sendPing(urgent) {
+function sendPing(level) {
   const now = Date.now();
-  if (now - lastPingAt < 900) return;
+  /* The alarm is deliberate, so it is allowed to jump the rate limit. */
+  if (level < 2 && now - lastPingAt < 900) return;
   lastPingAt = now;
   if (!dc || dc.readyState !== 'open') { toast('Not linked'); return; }
-  sendCtl({ t: 'ping', urgent, id: ++pingSeq });
+  sendCtl({ t: 'ping', level: level, urgent: level >= 1, id: ++pingSeq });
   playSent();
-  buzz(urgent ? [0, 60, 50, 60] : 25);
+  buzz(level >= 2 ? [0, 90, 60, 90, 60, 90, 60, 300] : level === 1 ? [0, 60, 50, 60] : 25);
   ui.ping.classList.add('sent');
   setTimeout(() => ui.ping.classList.remove('sent'), 400);
+  if (level >= 2) toast('Alarm sent', 2200);
 }
 
 /* ---------------- peer connection ---------------- */
@@ -1331,21 +1495,67 @@ ui.talk.addEventListener('pointerdown', e => {
   });
 });
 
-/* Ping: tap sends one, press and hold sends the urgent triple. */
+/* Ping has three strengths: a tap, a half-second hold for the urgent triple,
+   and the alarm - which needs either ten seconds of holding or ten quick jabs,
+   so it cannot be set off by accident. */
+const ALARM_HOLD_MS = 10000;
+const ALARM_TAPS = 10;
+const ALARM_TAP_WINDOW = 5000;
+
+function countRapidTap() {
+  const now = Date.now();
+  pingTaps = pingTaps.filter(t => now - t < ALARM_TAP_WINDOW);
+  pingTaps.push(now);
+  if (pingTaps.length >= ALARM_TAPS) {
+    pingTaps = [];
+    return true;
+  }
+  return false;
+}
+
 ui.ping.addEventListener('contextmenu', e => e.preventDefault());
 ui.ping.addEventListener('pointerdown', e => {
   e.preventDefault();
   try { ui.ping.setPointerCapture(e.pointerId); } catch (err) {}
   urgentArmed = false;
   clearTimeout(holdTimer);
-  holdTimer = setTimeout(() => { urgentArmed = true; sendPing(true); }, 550);
+  clearTimeout(alarmTimer);
+  holdTimer = setTimeout(() => { urgentArmed = true; sendPing(1); }, 550);
+  alarmTimer = setTimeout(() => {
+    urgentArmed = true;
+    ui.ping.classList.remove('arming');
+    sendPing(2);
+  }, ALARM_HOLD_MS);
+  ui.ping.classList.add('arming');
 });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
   ui.ping.addEventListener(type, () => {
     clearTimeout(holdTimer);
-    if (type === 'pointerup' && !urgentArmed) sendPing(false);
+    clearTimeout(alarmTimer);
+    ui.ping.classList.remove('arming');
+    if (type === 'pointerup' && !urgentArmed) {
+      if (countRapidTap()) sendPing(2);
+      else sendPing(0);
+    }
     urgentArmed = false;
   });
+});
+
+/* Voice: a tap turns the disguise on or off, two taps move to the next one. */
+ui.voice.addEventListener('contextmenu', e => e.preventDefault());
+ui.voice.addEventListener('click', () => {
+  const now = Date.now();
+  if (now - lastVoiceTap < 350) {
+    clearTimeout(voiceTapTimer);
+    lastVoiceTap = 0;
+    cycleVoice();
+    return;
+  }
+  lastVoiceTap = now;
+  voiceTapTimer = setTimeout(() => {
+    if (voice === 'off') { setVoice('robot'); toast('Voice: robot', 1600); }
+    else { setVoice('off'); toast('Voice off', 1400); }
+  }, 360);
 });
 
 ui.togHalf.onclick = () => {
@@ -1360,7 +1570,8 @@ ui.togHalf.onclick = () => {
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
-  'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide'].forEach(k => {
+  'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
+  'voice', 'voiceFace', 'voiceName'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1441,6 +1652,7 @@ load();
 document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);
+updateVoiceBtn();
 loadName();
 initInstall();
 initResume();

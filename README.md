@@ -97,9 +97,32 @@ Each phone picks its own mode; they do not have to match.
 | **Latch** | Tap to go live, tap to stop | Either |
 | **Hold** | Live only while pressed | Loudspeaker |
 
+### Voices
+
+The face beside the talk button disguises how you sound **to the other
+person** — the effect is applied on the way out, so you hear yourself
+unchanged and they get the joke.
+
+- **Tap** turns it on and off.
+- **Double-tap** moves to the next voice.
+
+Five of them: robot, alien, radio, monster, wobble. Web Audio has no pitch
+shifter, so none of these transpose your voice; they colour it with ring
+modulation, filtering and distortion instead. Cheap, stable, and still daft.
+
 ### Ping
 
-Tap **PING** to send a tone and a buzz. Press and hold for the urgent triple.
+Three strengths, so the loudest one cannot go off by accident:
+
+| | How | What they get |
+|---|---|---|
+| **Ping** | Tap | One tone, a short buzz |
+| **Urgent** | Hold half a second | Rising triple, longer buzz |
+| **Alarm** | Hold ten seconds, **or** ten quick jabs | Five rising pairs over about 1.3s, a long buzz pattern, and a flashing screen |
+
+The ping button fills with red while an alarm is arming, so a long press is
+never a surprise. The alarm also skips the rate limit the other two obey.
+
 The tone is generated on the receiving phone rather than sent through the voice
 stream, so it stays clean and works whichever mode either of you is in, even
 with a muted microphone.
