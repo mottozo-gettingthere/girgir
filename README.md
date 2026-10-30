@@ -10,6 +10,11 @@ It keeps no records: no call history, no recordings, no logs, and no settings
 carried between launches. Anything an older version left on the phone is wiped
 at startup.
 
+Exactly one value survives a launch — a boolean noting the app has been
+installed, so the install hint stops appearing. iOS gives a page no way to
+detect that for itself. Nothing else persists, and **Clear cache** removes
+that too.
+
 ## What you need
 
 - Both phones on the same Wi-Fi network. A phone hotspot counts, and it does

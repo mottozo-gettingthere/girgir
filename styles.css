@@ -497,3 +497,7 @@ body {
 }
 
 .install-text b { color: var(--fg); font-weight: 600; }
+
+/* Dismiss, for the one case nothing can detect: iOS reopened in a browser
+   tab after the app is already on the home screen. */
+.install .icon-btn { flex: none; width: 28px; height: 28px; font-size: 14px; }

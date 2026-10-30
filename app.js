@@ -10,6 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 const REMEMBER_SETTINGS = false;
+const INSTALLED_KEY = 'girgir-installed';
 
 const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
@@ -36,6 +37,7 @@ const ui = {
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
+  btnInstallHide: $('btnInstallHide'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
@@ -59,7 +61,15 @@ let lastLost = null, lastRecv = null;
 /* Wipe anything a previous version or session left on this device. */
 function purgeStoredData() {
   try {
-    if (!REMEMBER_SETTINGS) localStorage.clear();
+    if (!REMEMBER_SETTINGS) {
+      /* The only thing carried between launches. iOS gives a page no way to
+         tell it has already been added to the home screen, so without this
+         the install hint would nag forever in a Safari tab. One boolean -
+         no call data of any kind survives a launch. */
+      const kept = localStorage.getItem(INSTALLED_KEY);
+      localStorage.clear();
+      if (kept !== null) localStorage.setItem(INSTALLED_KEY, kept);
+    }
     sessionStorage.clear();
   } catch (e) { /* storage blocked */ }
   try {
@@ -645,8 +655,21 @@ function isStandalone() {
     navigator.standalone === true;
 }
 
+function markInstalled() {
+  try { localStorage.setItem(INSTALLED_KEY, '1'); } catch (e) { /* blocked */ }
+  ui.installBar.hidden = true;
+}
+
+function alreadyInstalled() {
+  try { return localStorage.getItem(INSTALLED_KEY) === '1'; }
+  catch (e) { return false; }
+}
+
 function initInstall() {
-  if (isStandalone()) return;
+  /* Running from the home screen is proof it is installed, so record that
+     now - a later visit in a browser tab then stays quiet. */
+  if (isStandalone()) { markInstalled(); return; }
+  if (alreadyInstalled()) return;
   if (looksLikeIOS()) {
     ui.installText.innerHTML =
       'Install it: tap <b>Share</b>, then <b>Add to Home Screen</b>. ' +
@@ -1062,6 +1085,7 @@ async function clearData() {
     await Promise.all(keys.map(k => caches.delete(k)));
   } catch (e) { /* no cache storage */ }
   try { localStorage.removeItem('girgir'); } catch (e) {}
+  try { localStorage.removeItem(INSTALLED_KEY); } catch (e) {}
   try {
     if (navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -1144,7 +1168,7 @@ ui.togHalf.onclick = () => {
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
-  'togAwake', 'installBar', 'installText', 'btnInstall'].forEach(k => {
+  'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1169,7 +1193,7 @@ ui.togAwake.onclick = () => {
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   installEvent = e;
-  if (isStandalone()) return;
+  if (isStandalone() || alreadyInstalled()) return;
   ui.installText.textContent = 'Install it so it runs with no internet.';
   ui.btnInstall.hidden = false;
   ui.installBar.hidden = false;
@@ -1177,7 +1201,7 @@ window.addEventListener('beforeinstallprompt', e => {
 
 window.addEventListener('appinstalled', () => {
   installEvent = null;
-  ui.installBar.hidden = true;
+  markInstalled();
 });
 
 ui.btnInstall.onclick = async () => {
@@ -1187,8 +1211,10 @@ ui.btnInstall.onclick = async () => {
   try { outcome = (await installEvent.userChoice).outcome; } catch (e) {}
   installEvent = null;
   ui.btnInstall.hidden = true;
-  if (outcome === 'accepted') ui.installBar.hidden = true;
+  if (outcome === 'accepted') markInstalled();
 };
+
+ui.btnInstallHide.onclick = markInstalled;
 
 ui.btnRelink.onclick = () =>
   relink().catch(e => toast(e.message || 'Could not relink', 5000));
