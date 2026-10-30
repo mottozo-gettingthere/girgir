@@ -479,3 +479,21 @@ body {
 @media (min-width: 560px) {
   .sheet { align-items: center; }
 }
+
+/* ---------------- install prompt ---------------- */
+
+/* Android can install in one tap from here; iOS gets the share-sheet route
+   spelled out, because it offers no install API at all. */
+.install {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--tx);
+  border-radius: 10px; padding: 12px 14px;
+}
+
+.install-text {
+  flex: 1 1 200px; min-width: 0; margin: 0;
+  font-size: 13px; line-height: 1.5; color: var(--muted);
+}
+
+.install-text b { color: var(--fg); font-weight: 600; }

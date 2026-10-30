@@ -35,6 +35,7 @@ const ui = {
   togHalf: $('togHalf'), togRoger: $('togRoger'), hangup: $('btnHangup'),
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
+  installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
@@ -633,6 +634,27 @@ function setSessionState(playing) {
   } catch (e) { /* ignore */ }
 }
 
+/* Android fires beforeinstallprompt, so installing is one tap from inside
+   the page. iOS has no such event and no install API at all - WebKit has had
+   the request open for years - so the best available there is pointing
+   straight at the share sheet instead of letting people hunt for it. */
+let installEvent = null;
+
+function isStandalone() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+    navigator.standalone === true;
+}
+
+function initInstall() {
+  if (isStandalone()) return;
+  if (looksLikeIOS()) {
+    ui.installText.innerHTML =
+      'Install it: tap <b>Share</b>, then <b>Add to Home Screen</b>. ' +
+      'After that it opens from your home screen and needs no internet.';
+    ui.installBar.hidden = false;
+  }
+}
+
 function receivePing(urgent) {
   playPing(urgent);
   buzz(urgent ? [0, 130, 80, 130, 80, 220] : [0, 150]);
@@ -1122,7 +1144,7 @@ ui.togHalf.onclick = () => {
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
-  'togAwake'].forEach(k => {
+  'togAwake', 'installBar', 'installText', 'btnInstall'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1142,6 +1164,30 @@ ui.togAwake.onclick = () => {
   ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
   if (keepAwake) requestWakeLock();
   else if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+};
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installEvent = e;
+  if (isStandalone()) return;
+  ui.installText.textContent = 'Install it so it runs with no internet.';
+  ui.btnInstall.hidden = false;
+  ui.installBar.hidden = false;
+});
+
+window.addEventListener('appinstalled', () => {
+  installEvent = null;
+  ui.installBar.hidden = true;
+});
+
+ui.btnInstall.onclick = async () => {
+  if (!installEvent) return;
+  installEvent.prompt();
+  let outcome = 'dismissed';
+  try { outcome = (await installEvent.userChoice).outcome; } catch (e) {}
+  installEvent = null;
+  ui.btnInstall.hidden = true;
+  if (outcome === 'accepted') ui.installBar.hidden = true;
 };
 
 ui.btnRelink.onclick = () =>
@@ -1174,6 +1220,7 @@ load();
 document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);
+initInstall();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
