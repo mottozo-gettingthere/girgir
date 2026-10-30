@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 16;
+const APP_VERSION = 15;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -1491,60 +1491,13 @@ async function handAnswerOver(code) {
 
 function initBus() {
   try { bus = new BroadcastChannel('girgir'); } catch (e) { bus = null; return; }
-  bus.onmessage = async ev => {
+  bus.onmessage = ev => {
     const m = ev.data;
     if (!m || m.t !== 'answer') return;
     if (!pc || !amOfferer || pc.connectionState === 'connected') return;
-    /* Decode before claiming it. Handing a malformed code to takeAnswer would
-       throw, and consume() answers a failure by returning to the setup screen
-       - so a stale link opened at the wrong moment could abandon a pairing
-       that was going fine. */
-    try {
-      const d = await unpackDesc(m.code);
-      if (d.role !== 'A') return;
-    } catch (e) { return; }
     bus.postMessage({ t: 'got' });
     consume(m.code, takeAnswer).catch(() => {});
   };
-}
-
-/* ---------------- opened by an automation ---------------- */
-
-/* A shortcut, a routine or an NFC tag can do exactly one thing to this app:
-   open a URL. So the URL carries the instruction, and "open the app, tap
-   Create channel" collapses into one automation step with nothing to press.
-
-   ?go=standby is the one worth putting on both phones, because hosting is
-   symmetric - the same shortcut on both ends sorts out between them which
-   one hosts. */
-function takeGo() {
-  let go = '';
-  try { go = (new URLSearchParams(location.search).get('go') || '').trim().toLowerCase(); }
-  catch (e) { return ''; }
-  if (!go) return '';
-  try { history.replaceState(null, '', location.pathname); } catch (e) {}
-  return go;
-}
-
-/* A page opened by an automation has had no tap, and a context built without
-   one starts suspended - on iOS it stays that way until a tap happens. That
-   is how an auto-started channel can come up looking linked and carrying
-   silence, so it is worth saying out loud rather than leaving to be
-   discovered mid-sentence. */
-function warnIfSilent() {
-  if (actx && actx.state === 'suspended') {
-    toast('Tap the screen once to switch the microphone on', 7000);
-  }
-}
-
-function runGo(go) {
-  const fail = e => toast(e && e.message ? e.message : 'Could not start', 5000);
-  let p = null;
-  if (go === 'standby' || go === 'open' || go === 'channel') p = standby();
-  else if (go === 'host' || go === 'create') p = createChannel();
-  else if (go === 'join' || go === 'scan') p = joinChannel();
-  else return;
-  Promise.resolve(p).then(warnIfSilent, fail);
 }
 
 /* ---------------- pairing flow ---------------- */
@@ -2192,13 +2145,6 @@ ui.togRoger.onclick = () => {
 
 ui.togEars.onclick = () => { setEars(!handsFree); };
 
-/* A suspended context cannot be resumed without a gesture, and iOS suspends
-   it again every time the app goes away, so these stay for the whole session
-   rather than firing once. */
-['pointerdown', 'touchend', 'keydown'].forEach(t => window.addEventListener(t, () => {
-  if (actx && actx.state === 'suspended') actx.resume().catch(() => {});
-}, { passive: true }));
-
 /* Safety releases. */
 window.addEventListener('blur', releaseHold);
 document.addEventListener('visibilitychange', () => {
@@ -2252,9 +2198,7 @@ window.addEventListener('hashchange', () => {
 });
 
 const linkCode = takeHash();
-const goWord = takeGo();
 if (linkCode) openFromLink(linkCode).catch(e => toast(e.message || 'That link could not be used', 5000));
-else if (goWord) runGo(goWord);
 
 /* isSecureContext is the browser's own verdict, so it also covers a LAN
    origin whitelisted for testing, which a protocol/hostname check misses. */
