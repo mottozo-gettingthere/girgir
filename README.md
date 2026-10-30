@@ -240,6 +240,48 @@ That is deliberate: neither mode gives you any way to see that you are still
 transmitting once the screen is off, and a hot microphone in a pocket is worse
 than a dropped call. OPEN is the pocket mode, and its button still mutes you.
 
+## Opening it from a shortcut or an NFC tag
+
+An automation can do exactly one thing to a web app: open a URL. So the URL
+says what to do on arrival, and the setup screen is skipped:
+
+| URL | What happens |
+|---|---|
+| `…/girgir/?go=standby` | Shows a code and watches for one. **Put this on both phones** — hosting is symmetric, so the same shortcut on both ends sorts out which one hosts |
+| `…/girgir/?go=host` | Creates the channel and shows the code |
+| `…/girgir/?go=join` | Opens the scanner |
+
+The parameter is consumed and wiped from the address bar, so a reload will not
+fire it again, and a pairing link in the fragment always wins over it.
+
+**On the iPhone:** Shortcuts → Automation → *When I connect to* your hotspot →
+**Open URLs** with the standby link, then turn off *Ask Before Running*, which
+Wi-Fi triggers have allowed since iOS 15.4. Try **Open App** first and see
+whether the home screen web app is offered — if it is, use that. Open URLs
+goes to Safari instead, and iOS keeps Safari's storage apart from the home
+screen app's, so Safari needs to have loaded the page once with internet and
+will ask for the microphone in its own right.
+
+**On Android:** any routine or Tasker can open a URL when a network is joined.
+Turning the hotspot *on* by automation is the awkward half — Tasker has a
+WiFi Tether action, Samsung has Modes and Routines, and otherwise it wants
+Shizuku or an ADB-granted permission. It depends on the phone.
+
+**An NFC tag works on both**, and this is the one thing NFC is actually good
+for here: a tag by the door, a tag in the car, tap and the app opens already
+pairing. A tag cannot carry a code — those die with the page — but it can
+carry the standby URL.
+
+What no automation can do is the handshake itself. It can get both phones onto
+the network and both apps into standby, and then the two still have to see
+each other's code, because nothing but a camera or a link can carry one
+between the handsets.
+
+One caveat worth knowing: a page opened with no tap has a suspended audio
+context, and on iOS it stays suspended until something is touched. The app
+notices and says **Tap the screen once to switch the microphone on** rather
+than letting you talk into a dead line.
+
 ## Pairing by link, which needs no camera at all
 
 A code can travel as a URL instead of as a picture. **Send this as a link** on
