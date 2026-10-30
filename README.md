@@ -106,9 +106,15 @@ unchanged and they get the joke.
 - **Tap** turns it on and off.
 - **Double-tap** moves to the next voice.
 
-Five of them: robot, alien, radio, monster, wobble. Web Audio has no pitch
-shifter, so none of these transpose your voice; they colour it with ring
-modulation, filtering and distortion instead. Cheap, stable, and still daft.
+Five of them: robot, helium, radio, tuner, wobble.
+
+Web Audio has no pitch shifter, so there is one written out of two delay lines
+whose delay is swept and crossfaded — sweeping a delay changes playback rate,
+and so pitch. **Helium** rides it half again up, **tuner** doubles you a few
+semitones above yourself and squashes the result, which is the part of
+autotune these nodes can actually reach; real autotune needs pitch tracking
+and a scale to snap to. The other three colour the sound instead, with ring
+modulation, filtering and distortion. All of it is cheap, stable, and daft.
 
 ### Ping
 

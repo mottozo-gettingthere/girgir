@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 11;
+const APP_VERSION = 12;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -457,9 +457,9 @@ function setMicGain(v) {
 const VOICES = [
   { id: 'off',     face: '\u{1F610}', name: 'straight' },
   { id: 'robot',   face: '\u{1F916}', name: 'robot'    },
-  { id: 'alien',   face: '\u{1F47D}', name: 'alien'    },
+  { id: 'helium',  face: '\u{1F388}', name: 'helium'   },
   { id: 'radio',   face: '\u{1F4FB}', name: 'radio'    },
-  { id: 'monster', face: '\u{1F479}', name: 'monster'  },
+  { id: 'tuner',   face: '\u{1F3A4}', name: 'tuner'    },
   { id: 'wobble',  face: '\u{1F974}', name: 'wobble'   }
 ];
 
@@ -467,7 +467,10 @@ const VOICES = [
    is swept linearly and crossfaded into each other. Sweeping a delay changes
    playback rate, and therefore pitch; the crossfade hides the jump when each
    sweep restarts. Granular, so it sounds a bit grainy - which for a helium
-   voice is no loss at all. */
+   voice is no loss at all.
+
+   The ratio works out as 1 + amount, measured against a 330 Hz tone through
+   an OfflineAudioContext: 0.2 gave 1.18x and 0.5 gave 1.48x. */
 const SHIFT_WINDOW = 0.100;
 const SHIFT_FADE = 0.050;
 
@@ -576,13 +579,24 @@ function buildVoice(ctx, id) {
   if (id === 'robot') {
     input = output = ringMod(ctx, 48, nodes);
 
-  } else if (id === 'alien') {
-    const rm = ringMod(ctx, 190, nodes);
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 1400; bp.Q.value = 1.2;
-    rm.connect(bp);
-    nodes.push(bp);
-    input = rm; output = bp;
+  } else if (id === 'helium') {
+    /* Up about half again, which is squeaky and still intelligible. The
+       highpass clears the rumble the sweep leaves at the bottom, and the
+       shelf puts back the brightness that makes it read as helium rather
+       than as a slowed-down tape played fast. */
+    const sh = makeShifter(ctx, 0.5, nodes);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 180;
+    const shelf = ctx.createBiquadFilter();
+    shelf.type = 'highshelf'; shelf.frequency.value = 2200; shelf.gain.value = 3;
+    /* 0.7 measures within a decibel of the straight voice at every input
+       level from a whisper to a shout - two swept taps summing plus the
+       shelf would otherwise come out several decibels hot. */
+    const trim = ctx.createGain();
+    trim.gain.value = 0.7;
+    sh.output.connect(hp); hp.connect(shelf); shelf.connect(trim);
+    nodes.push(hp, shelf, trim);
+    input = sh.input; output = trim;
 
   } else if (id === 'radio') {
     const hp = ctx.createBiquadFilter();
@@ -597,17 +611,36 @@ function buildVoice(ctx, id) {
     nodes.push(hp, lp, ws, trim);
     input = hp; output = trim;
 
-  } else if (id === 'monster') {
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass'; lp.frequency.value = 850;
-    const rm = ringMod(ctx, 22, nodes);
-    const ws = ctx.createWaveShaper();
-    ws.curve = distortionCurve(6);
+  } else if (id === 'tuner') {
+    /* Not real autotune - that needs pitch tracking and a scale to snap to,
+       neither of which these nodes can do. What it does have is the part
+       people actually recognise: the voice doubled a few semitones above
+       itself. 0.2 is about three.
+
+       The compressor is there for the other half of that sound, the squashed
+       vocal: measured across a 20 dB range of input it holds the output
+       inside 9 dB, so the double sits at one level however loudly you talk.
+       It is not smoothing the crossfade - that ripple turned out to be about
+       a decibel either way. */
+    const dry = ctx.createGain();
+    dry.gain.value = 0.75;
+    const sh = makeShifter(ctx, 0.2, nodes);
+    const wet = ctx.createGain();
+    wet.gain.value = 0.9;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -24;
+    comp.knee.value = 6;
+    comp.ratio.value = 3;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.12;
     const trim = ctx.createGain();
-    trim.gain.value = 1.3;
-    lp.connect(rm); rm.connect(ws); ws.connect(trim);
-    nodes.push(lp, ws, trim);
-    input = lp; output = trim;
+    trim.gain.value = 1.0;
+    dry.connect(comp);
+    dry.connect(sh.input);
+    sh.output.connect(wet); wet.connect(comp);
+    comp.connect(trim);
+    nodes.push(dry, wet, comp, trim);
+    input = dry; output = trim;
 
   } else if (id === 'wobble') {
     /* Vibrato: a short delay whose length is wobbled by a slow oscillator. */
