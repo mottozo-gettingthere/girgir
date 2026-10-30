@@ -35,7 +35,7 @@ const ui = {
   togHalf: $('togHalf'), togRoger: $('togRoger'), hangup: $('btnHangup'),
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
-  micLvl: $('micLvl'), micVal: $('micVal'),
+  micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
 
@@ -45,7 +45,7 @@ let pc = null, dc = null;
 let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
-let halfDuplex = true, rogerBeep = true, volume = 100;
+let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
 let scanning = false, scanStream = null, jsqrLoad = null;
 let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
@@ -386,6 +386,7 @@ function setLive(on) {
   syncDuck();
   sendCtl({ t: 'mic', live: on });
   if (on) buzz(12);
+  setSessionState(on || mode === 'open');
   updateTalk();
   updateStatus();
 }
@@ -602,6 +603,34 @@ async function relink() {
   ui.vNet.textContent = '\u2014';
   ui.meterThem.style.width = '0%';
   await createChannel();
+}
+
+/* Android keeps a page alive in the background when it presents itself as an
+   ongoing media session, and gives it a notification with controls. iOS
+   accepts the metadata but still suspends the page, so this buys nothing
+   there. */
+function initMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'Voice channel',
+      artist: 'Earpiece',
+      album: 'Offline'
+    });
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (mode === 'open') { openMuted = false; setLive(true); updateTalk(); }
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (mode === 'open') { openMuted = true; setLive(false); updateTalk(); }
+    });
+  } catch (e) { /* older or partial implementation */ }
+}
+
+function setSessionState(playing) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
+  } catch (e) { /* ignore */ }
 }
 
 function receivePing(urgent) {
@@ -914,6 +943,8 @@ function goLive() {
   initOutput();
   capBitrate(32000);
   requestWakeLock();
+  initMediaSession();
+  setSessionState(true);
   startMeters();
 }
 
@@ -949,7 +980,7 @@ function startMeters() {
 
 async function requestWakeLock() {
   try {
-    if (navigator.wakeLock && !wakeLock) {
+    if (keepAwake && navigator.wakeLock && !wakeLock) {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => { wakeLock = null; });
     }
@@ -1090,7 +1121,8 @@ ui.togHalf.onclick = () => {
 /* A cached index.html from an older version can be missing a control that the
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
-['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal'].forEach(k => {
+['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
+  'togAwake'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1104,6 +1136,13 @@ ui.sheet.addEventListener('click', e => { if (e.target === ui.sheet) openSheet(f
 document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
 
 ui.micLvl.addEventListener('input', () => setMicGain(+ui.micLvl.value));
+
+ui.togAwake.onclick = () => {
+  keepAwake = !keepAwake;
+  ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
+  if (keepAwake) requestWakeLock();
+  else if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+};
 
 ui.btnRelink.onclick = () =>
   relink().catch(e => toast(e.message || 'Could not relink', 5000));
@@ -1135,6 +1174,7 @@ load();
 document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);
+ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
 updateTalk();

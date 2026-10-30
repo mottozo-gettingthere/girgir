@@ -137,6 +137,37 @@ Battery comes from the Battery Status API, which **Android supports and iOS does
 not**. So the Android phone shows its own level and sends it across, and the
 iPhone shows a dash for itself while still displaying the Android phone's.
 
+## Screen off, phone in a pocket
+
+Whether the channel survives the screen going off is decided by the browser,
+not by this app, and the two platforms differ completely.
+
+**Android — yes, in OPEN mode.** Live microphone capture plus an ongoing media
+session keeps Chrome from freezing the page, so the channel keeps running with
+the screen off. The app declares itself a media session, which is what earns
+that treatment and puts a notification in the shade. Turn **Keep screen on**
+off in settings first, or the screen never sleeps at all.
+
+If it dies after a minute or two, the culprit is the manufacturer's battery
+optimisation rather than Chrome. Settings → Apps → Chrome → Battery →
+Unrestricted. Samsung, Xiaomi and OnePlus are the usual offenders.
+
+**iPhone — no, and there is no way around it in a browser.** Safari suspends a
+backgrounded page and stops microphone capture with it. Adding to the home
+screen does not change this; neither does the media session, which iOS accepts
+and then ignores. Background audio on iOS needs an `AVAudioSession` entitlement
+that no web app can obtain. On the iPhone the screen has to stay awake, so
+leave **Keep screen on** enabled there and let the display dim.
+
+If you need an iPhone in a pocket, the app has to stop being a web app — see
+the Capacitor note below, which costs about a day and gets you the same code
+in a native shell that *can* hold background audio.
+
+**LATCH and HOLD close the microphone when the app goes to the background.**
+That is deliberate: neither mode gives you any way to see that you are still
+transmitting once the screen is off, and a hot microphone in a pocket is worse
+than a dropped call. OPEN is the pocket mode, and its button still mutes you.
+
 ## If someone drops out
 
 A pairing code carries one session's ICE credentials and DTLS fingerprint, so

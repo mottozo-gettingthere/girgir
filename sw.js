@@ -2,7 +2,7 @@
    network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
    decodes QR codes natively never download it, and those that need it fetch it on
    first run and get it cached by the runtime handler below. */
-const CACHE = 'earpiece-v7';
+const CACHE = 'earpiece-v8';
 const ASSETS = [
   './',
   'index.html',
