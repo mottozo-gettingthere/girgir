@@ -9,6 +9,9 @@ const $ = id => document.getElementById(id);
 /* This tool keeps no records: no history, no recordings, no settings carried
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
+/* Must match the number in version.json and the cache name in sw.js. */
+const APP_VERSION = 9;
+
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
 const NAME_KEY = 'girgir-name';
@@ -43,6 +46,9 @@ const ui = {
   btnInstallHide: $('btnInstallHide'), nameIn: $('nameIn'),
   routeRow: $('routeRow'), btnEarpiece: $('btnEarpiece'), btnSpeaker: $('btnSpeaker'),
   voice: $('voiceBtn'), voiceFace: $('voiceFace'), voiceName: $('voiceName'),
+  updateBar: $('updateBar'), updateText: $('updateText'), btnUpdate: $('btnUpdate'),
+  verNow: $('verNow'), verLatest: $('verLatest'),
+  dropBar: $('dropBar'), dropText: $('dropText'), btnDropPair: $('btnDropPair'),
   resumeBar: $('resumeBar'), resumeText: $('resumeText'),
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
@@ -950,7 +956,11 @@ async function attemptRecovery(force) {
   if (!force && pc.connectionState === 'connected') return;
 
   if (!dc || dc.readyState !== 'open') {
-    toast('Link lost. Tap Relink, and have them tap Join channel.', 7000);
+    /* Nothing left to renegotiate over, so the only way back is a fresh
+       pairing - offered here rather than left to be worked out. */
+    ui.dropText.textContent = (peerName || 'They') +
+      ' left the channel. Show a code and have them open the app and tap Join.';
+    ui.dropBar.hidden = false;
     return;
   }
   /* Only one side may re-offer, or the two offers collide. */
@@ -990,6 +1000,73 @@ async function takeReanswer(sdp) {
   catch (e) { toast('Could not relink by itself - tap Relink', 6000); }
   recovering = false;
   settlePill();
+}
+
+/* The installed build is whatever this script says it is. version.json is
+   fetched past the service worker, so it reports what the site serves now
+   rather than what was cached - otherwise the app could only ever confirm its
+   own version to itself. */
+function showUpdate(latest) {
+  ui.updateText.textContent = 'Version ' + latest + ' is out. You have ' +
+    APP_VERSION + '. Update while you have internet.';
+  ui.updateBar.hidden = false;
+}
+
+async function checkVersion() {
+  ui.verNow.textContent = String(APP_VERSION);
+  if (!navigator.onLine) { ui.verLatest.textContent = ' \u00b7 offline'; return; }
+  try {
+    const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+    const data = await res.json();
+    const latest = Number(data && data.version);
+    if (!latest) return;
+    if (latest > APP_VERSION) {
+      ui.verLatest.textContent = ' \u00b7 ' + latest + ' available';
+      ui.verLatest.className = 'stale';
+      showUpdate(latest);
+    } else {
+      ui.verLatest.textContent = ' \u00b7 up to date';
+      ui.verLatest.className = '';
+    }
+  } catch (e) {
+    ui.verLatest.textContent = ' \u00b7 could not check';
+  }
+}
+
+/* Clearing the caches and dropping the worker is the only way to be certain
+   the new files land rather than being served from the old set. */
+async function applyUpdate() {
+  ui.btnUpdate.disabled = true;
+  ui.updateText.textContent = 'Updating\u2026';
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  } catch (e) { /* no cache storage */ }
+  try {
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { /* ignore */ }
+  location.reload();
+}
+
+function watchWorkerUpdates() {
+  if (!navigator.serviceWorker) return;
+  navigator.serviceWorker.getRegistration().then(reg => {
+    if (!reg) return;
+    reg.update().catch(() => {});
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      if (!sw) return;
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+          ui.updateText.textContent = 'A new version is ready. Update to use it.';
+          ui.updateBar.hidden = false;
+        }
+      });
+    });
+  }).catch(() => {});
 }
 
 function receivePing(level) {
@@ -1036,6 +1113,7 @@ function newPeer() {
     if (s === 'connected') {
       clearTimeout(recoverTimer);
       recovering = false;
+      ui.dropBar.hidden = true;
       setPill('linked', 'LINKED');
       goLive();
     } else if (s === 'failed' || s === 'disconnected') {
@@ -1403,6 +1481,7 @@ function hangUp() {
   ui.vBattThem.textContent = '—';
   ui.vNet.textContent = '—';
   forgetChannel();
+  ui.dropBar.hidden = true;
   setPill('idle', 'IDLE');
   show('setup');
 }
@@ -1571,7 +1650,8 @@ ui.togHalf.onclick = () => {
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
-  'voice', 'voiceFace', 'voiceName'].forEach(k => {
+  'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
+  'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1622,6 +1702,12 @@ ui.btnInstall.onclick = async () => {
 
 ui.btnInstallHide.onclick = markInstalled;
 
+ui.btnUpdate.onclick = () => applyUpdate();
+ui.btnDropPair.onclick = () => {
+  ui.dropBar.hidden = true;
+  relink().catch(e => toast(e.message || 'Could not start', 5000));
+};
+
 ui.btnRelink.onclick = () =>
   relink().catch(e => toast(e.message || 'Could not relink', 5000));
 
@@ -1653,6 +1739,8 @@ document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);
 updateVoiceBtn();
+checkVersion();
+watchWorkerUpdates();
 loadName();
 initInstall();
 initResume();

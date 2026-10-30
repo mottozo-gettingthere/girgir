@@ -233,6 +233,29 @@ the app closing on either phone. Pairing again means the usual two scans:
 2. The other person opens the app, taps **Join channel**, and scans it.
 3. They show the reply code back to be scanned.
 
+## Versions and updating
+
+The guide shows the installed version beside the cache size, and whether a
+newer one is published. When there is, a bar appears on the first screen with
+an **Update** button; it clears the caches, drops the service worker and
+reloads, which is the only way to be certain the new files land rather than
+being served from the old set.
+
+The check reads `version.json`, which the service worker is written to fetch
+from the network every time and never from the cache — cache it and the app
+could only ever confirm its own version to itself.
+
+Releasing means bumping the same number in three places, which must agree:
+
+| File | What to change |
+|---|---|
+| `app.js` | `const APP_VERSION = N` |
+| `version.json` | `{ "version": N }` |
+| `sw.js` | `const CACHE = 'girgir-vN'` |
+
+GitHub Pages caches for ten minutes, so allow for that before expecting a
+phone to notice.
+
 ## Storage footprint
 
 Deliberately small, and you can see and clear it in the app under **?**.

@@ -579,3 +579,11 @@ body {
   .ping.arming { animation: none; border-color: var(--bad); }
   .flash.alarm { animation: none; background: rgba(226, 87, 76, 0.4); }
 }
+
+/* Version readout beside the cache size. */
+.storage #verLatest { color: var(--muted); }
+.storage #verLatest.stale { color: var(--tx); }
+
+/* Version readout beside the cache size. */
+.storage #verLatest { color: var(--muted); }
+.storage #verLatest.stale { color: var(--tx); }

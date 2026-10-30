@@ -34,6 +34,11 @@
   <!-- ============ SETUP ============ -->
   <section class="view" id="viewSetup">
     <div class="stack">
+      <div class="install" id="updateBar" hidden>
+        <p class="install-text" id="updateText"></p>
+        <button class="btn small" id="btnUpdate">Update</button>
+      </div>
+
       <div class="install" id="resumeBar" hidden>
         <p class="install-text" id="resumeText"></p>
         <button class="btn small" id="btnResume">Resume</button>
@@ -197,6 +202,7 @@
       <h2 class="sub">Storage on this phone</h2>
       <p class="prose">Only the app itself is cached, so it runs offline. There are no logs, no call history and no recordings. Two things are remembered between launches — the name you chose and the fact that you installed it — and nothing else survives. Anything an older version left behind is wiped at startup.</p>
       <div class="storage">
+        <span>Version <b id="verNow">—</b><span id="verLatest"></span></span>
         <span>Using <b id="storeUsed">—</b></span>
         <button class="btn small" id="btnClear">Clear cache</button>
       </div>
@@ -265,6 +271,11 @@
       <div class="cell"><span class="k">BATT</span><span class="v" id="vBattYou">—</span></div>
       <div class="cell"><span class="k">THEIRS</span><span class="v" id="vBattThem">—</span></div>
       <div class="cell"><span class="k">INPUT</span><span class="v" id="vInput">—</span></div>
+    </div>
+
+    <div class="install" id="dropBar" hidden>
+      <p class="install-text" id="dropText"></p>
+      <button class="btn small" id="btnDropPair">Show a code</button>
     </div>
 
     <div class="vol netrow">
