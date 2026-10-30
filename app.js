@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 12;
+const APP_VERSION = 13;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -28,6 +28,7 @@ const ui = {
   helpBack: $('btnHelpBack'), storeUsed: $('storeUsed'), btnClear: $('btnClear'),
   codeStep: $('codeStep'), codeHint: $('codeHint'), qrCanvas: $('qrCanvas'),
   btnNext: $('btnNext'), codeText: $('codeText'), btnCopy: $('btnCopy'),
+  shareRow: $('shareRow'), btnShare: $('btnShare'),
   scanStep: $('scanStep'), scanHint: $('scanHint'), cam: $('cam'),
   camWrap: document.querySelector('.cam-wrap'),
   pasteText: $('pasteText'), btnPaste: $('btnPaste'),
@@ -65,6 +66,7 @@ let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
+let bus = null;
 let route = 'earpiece';
 let micDest = null, voice = 'off', voiceNodes = [];
 let voiceTapTimer = 0, lastVoiceTap = 0, pingTaps = [];
@@ -1191,22 +1193,50 @@ async function checkVersion() {
   }
 }
 
-/* Clearing the caches and dropping the worker is the only way to be certain
-   the new files land rather than being served from the old set. */
+/* Emptying the caches and reloading is not enough, and the reason is worth
+   writing down because it looks like it should be.
+
+   unregister() does not stop the worker that is already controlling this page,
+   so it answers the reload - and on a miss it writes whatever it got straight
+   back into the cache it was just cleared of. Underneath that, the browser's
+   own HTTP cache is holding every file for ten minutes, and location.reload()
+   does not bypass it for scripts or stylesheets. Between them the reload
+   serves the build being replaced, the version check reads version.json
+   fresh, sees a newer number, and puts the same bar back up.
+
+   Installing a fresh worker first is what makes it land: a worker's install
+   step fetches past both caches, so by the time the page reloads the shell it
+   is served has come from the network. */
 async function applyUpdate() {
   ui.btnUpdate.disabled = true;
   ui.updateText.textContent = 'Updating\u2026';
-  try {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k)));
-  } catch (e) { /* no cache storage */ }
   try {
     if (navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();
       await Promise.all(regs.map(r => r.unregister()));
     }
-  } catch (e) { /* ignore */ }
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+    if (navigator.serviceWorker) await freshWorker();
+  } catch (e) { /* reload anyway and let the next check try again */ }
   location.reload();
+}
+
+/* Registers again and waits for the new worker to take over, so the reload is
+   served out of a cache filled moments ago from the network. Gives up after
+   fifteen seconds rather than leaving the button stuck. */
+function freshWorker() {
+  return new Promise(resolve => {
+    const giveUp = setTimeout(resolve, 15000);
+    const finish = () => { clearTimeout(giveUp); resolve(); };
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      const sw = reg.installing || reg.waiting || reg.active;
+      if (!sw || sw.state === 'activated') { finish(); return; }
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'activated') finish();
+      });
+    }).catch(finish);
+  });
 }
 
 function watchWorkerUpdates() {
@@ -1319,6 +1349,91 @@ function gatheringDone(timeout = 2500) {
   });
 }
 
+/* ---------------- pairing by link ---------------- */
+
+/* The camera is not quite the only channel the two phones share any more.
+   AirDrop now reaches between Apple and some Android handsets, Quick Share
+   goes the other way, and both run over Bluetooth and peer-to-peer Wi-Fi with
+   no internet involved - so a URL can cross between the phones on its own.
+
+   The code rides in the fragment, which never leaves the handset: a fragment
+   is not sent to the server, so GitHub Pages never sees a line of it. */
+function codeLink(code) {
+  return location.origin + location.pathname + '#' + code;
+}
+
+async function shareCode(code) {
+  const url = codeLink(code);
+  if (navigator.share) {
+    try { await navigator.share({ url: url, title: 'Girgir channel' }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Link copied \u2014 send it to them', 4000);
+  } catch (e) {
+    toast('Could not share the link', 4000);
+  }
+}
+
+/* Read once and wiped, because a reload must never try to use a description
+   that has already been answered. */
+function takeHash() {
+  let hash = (location.hash || '').replace(/^#/, '').trim();
+  try { hash = decodeURIComponent(hash).trim(); } catch (e) { /* leave as is */ }
+  if (!hash.startsWith(PROTO)) return '';
+  try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  return hash;
+}
+
+async function openFromLink(code) {
+  if (code.charAt(2) === 'A') return handAnswerOver(code);
+  try {
+    await ensureMic();
+  } catch (e) {
+    toast('Microphone blocked. Allow it in site settings.', 5000);
+    return;
+  }
+  setPill('pairing', 'PAIRING');
+  teardownPeer();
+  await consume(code, takeOffer);
+}
+
+/* An answer is no use to any page but the one still holding the matching
+   offer. If that is this page, take it. Otherwise hand it to the tab that is,
+   which is what a link opened from a notification needs - the browser may
+   well give it a tab of its own. */
+async function handAnswerOver(code) {
+  if (pc && amOfferer && pc.connectionState !== 'connected') {
+    await consume(code, takeAnswer);
+    return;
+  }
+  if (!bus) {
+    toast('Open that link on the phone that showed the code', 6000);
+    return;
+  }
+  let claimed = false;
+  const ack = ev => { if (ev.data && ev.data.t === 'got') claimed = true; };
+  bus.addEventListener('message', ack);
+  bus.postMessage({ t: 'answer', code: code });
+  setTimeout(() => {
+    bus.removeEventListener('message', ack);
+    if (claimed) toast('Reply handed to the waiting app', 3000);
+    else toast('That reply belongs to the phone that showed the code', 6000);
+  }, 1500);
+}
+
+function initBus() {
+  try { bus = new BroadcastChannel('girgir'); } catch (e) { bus = null; return; }
+  bus.onmessage = ev => {
+    const m = ev.data;
+    if (!m || m.t !== 'answer') return;
+    if (!pc || !amOfferer || pc.connectionState === 'connected') return;
+    bus.postMessage({ t: 'got' });
+    consume(m.code, takeAnswer).catch(() => {});
+  };
+}
+
 /* ---------------- pairing flow ---------------- */
 
 /* Hosting is symmetric: this phone shows an offer and watches for a code at
@@ -1349,7 +1464,8 @@ async function host(step, hint) {
 
 function createChannel() {
   return host('STEP 1 OF 2',
-    'Let the other phone scan this \u2014 or just point the two phones at each other.');
+    'Send it as a link, let the other phone scan it, or just point the two ' +
+    'phones at each other.');
 }
 
 /* A page that has been closed takes its code with it: the ICE credentials and
@@ -1401,7 +1517,8 @@ async function takeOffer(code) {
   await pc.setLocalDescription(await pc.createAnswer());
   await gatheringDone();
   const answer = await packDesc('A', pc.localDescription.sdp);
-  showCode(answer, 'STEP 2 OF 2', 'Let their phone scan this. You will connect automatically.',
+  showCode(answer, 'STEP 2 OF 2',
+    'Send this back as a link, or let their phone scan it. You will connect automatically.',
     'Waiting for them…', () => { if (pc.connectionState !== 'connected') toast('Still waiting for them to scan'); });
 }
 
@@ -1418,6 +1535,8 @@ async function takeAnswer(code) {
 }
 
 function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter) {
+  ui.btnShare.onclick = () => shareCode(code);
+  ui.shareRow.hidden = false;
   ui.codeStep.textContent = step;
   ui.codeHint.textContent = hint;
   ui.codeText.value = code;
@@ -1891,7 +2010,7 @@ ui.togHalf.onclick = () => {
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
   'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair',
-  'watching', 'codeCam'].forEach(k => {
+  'watching', 'codeCam', 'shareRow', 'btnShare'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1984,6 +2103,7 @@ checkVersion();
 watchWorkerUpdates();
 loadName();
 initInstall();
+initBus();
 initResume();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
@@ -2000,6 +2120,16 @@ if (!navigator.mediaDevices || !window.RTCPeerConnection) {
 /* Phones without a native QR decoder fetch the fallback now, while there is
    still a network, so that pairing works offline later. */
 nativeDetector().then(d => { if (!d) loadJsQR().catch(() => {}); });
+
+/* A code may have arrived in the link that opened this page, or in one opened
+   while it was already running. */
+window.addEventListener('hashchange', () => {
+  const code = takeHash();
+  if (code) openFromLink(code).catch(e => toast(e.message || 'That link could not be used', 5000));
+});
+
+const linkCode = takeHash();
+if (linkCode) openFromLink(linkCode).catch(e => toast(e.message || 'That link could not be used', 5000));
 
 /* isSecureContext is the browser's own verdict, so it also covers a LAN
    origin whitelisted for testing, which a protocol/hostname check misses. */

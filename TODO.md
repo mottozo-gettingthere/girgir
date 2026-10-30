@@ -99,8 +99,14 @@ network by itself:
   find nothing, because no page can answer them.
 
 So two installed copies of this app on one Wi-Fi genuinely cannot see each
-other. The cameras are the transport, and standby — both ends showing a code
-and watching at once — is the shortest ritual that allows.
+other. Nothing in the app can *discover* anything.
+
+What it can do is let the phones hand a code to each other by other means. A
+code now travels as a URL in the fragment, which AirDrop or Quick Share will
+carry between the handsets over Bluetooth and peer-to-peer Wi-Fi with no
+internet at all — see the README. That is not discovery: somebody still picks
+the other phone out of a share sheet. But it removes the cameras from pairing
+entirely, which was most of what "just join" was asking for.
 
 ### What would actually work
 

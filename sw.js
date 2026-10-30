@@ -2,7 +2,7 @@
    network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
    decodes QR codes natively never download it, and those that need it fetch it on
    first run and get it cached by the runtime handler below. */
-const CACHE = 'girgir-v12';
+const CACHE = 'girgir-v13';
 const ASSETS = [
   './',
   'index.html',
@@ -20,7 +20,11 @@ const ASSETS = [
 self.addEventListener('install', ev => {
   ev.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(ASSETS))
+      /* Each file is fetched past the browser's own HTTP cache. GitHub Pages
+         serves everything with max-age=600, and addAll would happily precache
+         the ten-minute-old copies of the build being replaced - which is how
+         an update can appear to install and change nothing. */
+      .then(c => Promise.all(ASSETS.map(u => c.add(new Request(u, { cache: 'reload' })))))
       .then(() => self.skipWaiting())
   );
 });

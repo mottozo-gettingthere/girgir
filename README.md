@@ -207,7 +207,48 @@ That is deliberate: neither mode gives you any way to see that you are still
 transmitting once the screen is off, and a hot microphone in a pocket is worse
 than a dropped call. OPEN is the pocket mode, and its button still mutes you.
 
-## Pairing, and why it is not one scan
+## Pairing by link, which needs no camera at all
+
+A code can travel as a URL instead of as a picture. **Send this as a link** on
+the code screen opens the phone's own share sheet, and the code rides in the
+fragment — the part after the `#`, which browsers never send to a server, so
+GitHub Pages sees nothing but the path.
+
+AirDrop reaches between Apple and some Android handsets now, Quick Share goes
+the other way, and both run over Bluetooth and peer-to-peer Wi-Fi with no
+internet involved. Where that works, the whole pairing is taps:
+
+1. One phone taps **Create channel**, then **Send this as a link**, and
+   AirDrops it over.
+2. The other taps the notification. The app opens, answers by itself, and
+   shows its reply.
+3. It taps **Send this as a link** back. The first phone taps that
+   notification and the channel is up.
+
+Nothing is scanned and neither camera is used. If the reply link lands in a
+new tab rather than the one holding the offer, the app passes it across to the
+right tab over a `BroadcastChannel` and that tab takes it from there.
+
+This suits an uneven pair, which is the usual case: whoever is happier driving
+can create the channel and send both links, leaving the other person two taps
+on two notifications.
+
+Three things to know before relying on it:
+
+- **Whether the share sheet can reach the other phone depends on the
+  handsets.** Apple-to-Apple AirDrop has always worked; Android-to-Apple
+  arrived with Quick Share's AirDrop support and is not on every model. The
+  share sheet itself is the test — if the other phone is offered, it works.
+- **On an iPhone the link opens in Safari, not in the app installed on the
+  home screen**, and iOS keeps their storage apart. So Safari needs to have
+  loaded the page once with internet before it can open a link offline.
+  Afterwards it has its own cached copy and works on the hotspot.
+- **A link is as perishable as a code.** It carries one live connection's ICE
+  credentials and fingerprint, so an old one is useless. Send a fresh one.
+
+QR is still there and still works, for when none of the above does.
+
+## Pairing by camera, and why it is not one scan
 
 Two codes have to cross, so two scans happen. What the app removes is the step
 in between: the phone that created the channel **keeps its camera running
@@ -288,6 +329,25 @@ being served from the old set.
 The check reads `version.json`, which the service worker is written to fetch
 from the network every time and never from the cache — cache it and the app
 could only ever confirm its own version to itself.
+
+Making the update actually land took more than clearing the caches, and the
+reason is worth knowing if the bar ever comes back after an update:
+
+- `unregister()` does not stop the worker already controlling the page, so it
+  answers the reload — and on a miss it writes what it got straight back into
+  the cache it was just cleared of.
+- Under that, GitHub Pages serves every file with `max-age=600`, and
+  `location.reload()` does **not** bypass the browser's own HTTP cache for
+  scripts or stylesheets.
+
+Between them the reload served the build being replaced, the check read
+`version.json` fresh, saw a newer number, and put the same bar back up. It
+looked like a loop and was really a ten-minute cache.
+
+So the update now installs a fresh worker *before* reloading, and the worker's
+install step fetches every file with `cache: 'reload'`, which goes past both
+caches. If an older build is ever stuck in that loop, **Clear cache** in the
+guide breaks it, and so does waiting ten minutes.
 
 Releasing means bumping the same number in three places, which must agree:
 
