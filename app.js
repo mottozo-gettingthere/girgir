@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 18;
+const APP_VERSION = 19;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -75,7 +75,7 @@ let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let handsFree = false;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
-let scanning = false, scanStream = null, jsqrLoad = null;
+let scanning = false, scanStream = null, jsqrLoad = null, nativeDead = false;
 let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
 let pingSeq = 0, duckTimer = 0, holdTimer = 0, alarmTimer = 0, urgentArmed = false;
 let helpReturn = 'setup', volumeWorks = false;
@@ -1732,10 +1732,24 @@ const SCAN_INTERVAL_MS = 100;
 /* A filter lets the loop pass over a code it is not meant to act on - the
    other phone's offer when this one is staying host - and keep looking
    instead of stopping on it. */
+/* Chrome on Android backs BarcodeDetector with a Play Services module that
+   is fetched on demand. When that module is not there the object still
+   exists, still reports qr_code among its formats, still constructs - and
+   then returns an empty array for every frame it is ever given. Scanning
+   fails silently and permanently, and the camera looks perfectly healthy
+   while it happens.
+
+   Nothing tells an empty result apart from "no code in shot", so the only
+   safe reading is time: once the native decoder has had a good long look and
+   found nothing, stop believing it and hand the frames to jsQR instead. */
+const NATIVE_PATIENCE = 20;   /* frames at 100 ms, so about two seconds */
+
 function runScanLoop(videoEl, detector, handler, filter) {
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d', { willReadFrequently: true });
   let busy = false;
+  let det = nativeDead ? null : detector;
+  let barren = 0;
 
   const tick = async () => {
     if (!scanning) return;
@@ -1750,10 +1764,23 @@ function runScanLoop(videoEl, detector, handler, filter) {
         g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2,
                     side, side, 0, 0, sz, sz);
         let text = null;
-        if (detector) {
-          const codes = await detector.detect(canvas);
+        if (det) {
+          let codes = null;
+          try {
+            codes = await det.detect(canvas);
+          } catch (e) {
+            /* A decoder that throws is as useless as one that says nothing. */
+            nativeDead = true;
+            det = null;
+          }
           if (codes && codes.length) text = codes[0].rawValue;
-        } else if (window.jsQR) {
+          else if (det && ++barren >= NATIVE_PATIENCE && window.jsQR) {
+            nativeDead = true;
+            det = null;
+            toast('Using the backup QR reader', 3000);
+          }
+        }
+        if (!text && !det && window.jsQR) {
           const img = g.getImageData(0, 0, sz, sz);
           const found = jsQR(img.data, sz, sz, { inversionAttempts: 'dontInvert' });
           if (found) text = found.data;
@@ -2221,9 +2248,11 @@ if (!navigator.mediaDevices || !window.RTCPeerConnection) {
   toast('This browser cannot do WebRTC. Open the page over HTTPS.', 8000);
 }
 
-/* Phones without a native QR decoder fetch the fallback now, while there is
-   still a network, so that pairing works offline later. */
-nativeDetector().then(d => { if (!d) loadJsQR().catch(() => {}); });
+/* The fallback decoder is fetched whether or not this browser claims to have
+   one of its own, because a native decoder that quietly returns nothing
+   cannot be told from an empty frame until it has been tried - and by the
+   time it has, the network may well be gone. */
+loadJsQR().catch(() => {});
 
 /* A code may have arrived in the link that opened this page, or in one opened
    while it was already running. */
