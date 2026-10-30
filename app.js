@@ -12,7 +12,8 @@ const $ = id => document.getElementById(id);
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
 const NAME_KEY = 'girgir-name';
-const KEEP_KEYS = [INSTALLED_KEY, NAME_KEY];
+const LAST_KEY = 'girgir-last';
+const KEEP_KEYS = [INSTALLED_KEY, NAME_KEY, LAST_KEY];
 
 const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
@@ -40,6 +41,9 @@ const ui = {
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
   btnInstallHide: $('btnInstallHide'), nameIn: $('nameIn'),
+  routeRow: $('routeRow'), btnEarpiece: $('btnEarpiece'), btnSpeaker: $('btnSpeaker'),
+  resumeBar: $('resumeBar'), resumeText: $('resumeText'),
+  btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
@@ -52,6 +56,7 @@ let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
+let route = 'earpiece';
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
@@ -290,9 +295,12 @@ function initVolume() {
   }
 }
 
-/* Output routing. No browser can move audio between the earpiece and the
-   loudspeaker: iOS always uses the receiver for call audio, Android always the
-   loudspeaker. Where setSinkId exists we can at least offer the device list. */
+/* Output routing. Safari exposes navigator.audioSession, and its type decides
+   where sound lands: play-and-record goes to the receiver, playback to the
+   loudspeaker. It is reportedly not reliable on every iOS build, so the choice
+   is offered rather than assumed. Chrome has no equivalent, so on Android the
+   loudspeaker really is the only option, and setSinkId only ever offers whole
+   devices rather than the two outputs inside the phone. */
 function looksLikeIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
@@ -317,6 +325,23 @@ async function refreshOutputs() {
   } catch (e) { showDefaultRouting(); }
 }
 
+function hasAudioSession() {
+  try { return !!(navigator.audioSession && 'type' in navigator.audioSession); }
+  catch (e) { return false; }
+}
+
+function setRoute(r) {
+  if (!hasAudioSession()) return;
+  try {
+    navigator.audioSession.type = (r === 'speaker') ? 'playback' : 'play-and-record';
+    route = r;
+  } catch (e) {
+    toast('This phone would not switch output', 4000);
+  }
+  ui.btnEarpiece.setAttribute('aria-pressed', String(route === 'earpiece'));
+  ui.btnSpeaker.setAttribute('aria-pressed', String(route === 'speaker'));
+}
+
 function showDefaultRouting() {
   ui.outSel.hidden = true;
   ui.outNote.hidden = false;
@@ -324,6 +349,16 @@ function showDefaultRouting() {
 }
 
 async function initOutput() {
+  if (hasAudioSession()) {
+    ui.routeRow.hidden = false;
+    ui.outSel.hidden = true;
+    ui.outNote.hidden = false;
+    ui.outNote.textContent = 'switching can take a moment';
+    ui.btnEarpiece.onclick = () => setRoute('earpiece');
+    ui.btnSpeaker.onclick = () => setRoute('speaker');
+    setRoute(route);
+    return;
+  }
   if (typeof ui.remoteAudio.setSinkId !== 'function') { showDefaultRouting(); return; }
   await refreshOutputs();
   ui.outSel.onchange = async () => {
@@ -1099,7 +1134,35 @@ function attachRemoteAnalyser() {
   } catch (e) { remoteAnalyser = null; }
 }
 
+/* Remembers only which side you were on, so resuming puts each phone back on
+   the right half of a fresh pairing. The old session itself cannot be
+   restored - its codes die with the page. */
+function rememberChannel() {
+  try { localStorage.setItem(LAST_KEY, amOfferer ? 'O' : 'A'); } catch (e) {}
+}
+
+function forgetChannel() {
+  try { localStorage.removeItem(LAST_KEY); } catch (e) {}
+}
+
+function initResume() {
+  let last = '';
+  try { last = localStorage.getItem(LAST_KEY) || ''; } catch (e) {}
+  if (last !== 'O' && last !== 'A') return;
+  ui.resumeText.textContent = last === 'O'
+    ? 'You were hosting the last channel. Resume shows a fresh code for them to scan.'
+    : 'You joined the last channel. Resume opens the scanner for their fresh code.';
+  ui.resumeBar.hidden = false;
+  ui.btnResume.onclick = () => {
+    ui.resumeBar.hidden = true;
+    const go = last === 'O' ? createChannel() : joinChannel();
+    go.catch(e => toast(e.message || 'Could not start', 5000));
+  };
+  ui.btnResumeHide.onclick = () => { forgetChannel(); ui.resumeBar.hidden = true; };
+}
+
 function goLive() {
+  rememberChannel();
   if (!ui.views.live.hidden) return;
   stopScanner();
   show('live');
@@ -1175,6 +1238,7 @@ function hangUp() {
   ui.meterThem.style.width = '0%';
   ui.vBattThem.textContent = '—';
   ui.vNet.textContent = '—';
+  forgetChannel();
   setPill('idle', 'IDLE');
   show('setup');
 }
@@ -1211,6 +1275,7 @@ async function clearData() {
   try { localStorage.removeItem('girgir'); } catch (e) {}
   try { localStorage.removeItem(INSTALLED_KEY); } catch (e) {}
   try { localStorage.removeItem(NAME_KEY); } catch (e) {}
+  try { localStorage.removeItem(LAST_KEY); } catch (e) {}
   try {
     if (navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -1294,7 +1359,8 @@ ui.togHalf.onclick = () => {
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
-  'nameIn', 'labelYou', 'labelThem'].forEach(k => {
+  'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
+  'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1377,6 +1443,7 @@ document.querySelectorAll('.mode').forEach(b =>
 setMicGain(micGain);
 loadName();
 initInstall();
+initResume();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));

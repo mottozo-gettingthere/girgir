@@ -235,18 +235,23 @@ top of `app.js` — that is the only line involved.
 
 ## Earpiece or loudspeaker
 
-Each phone gives you one and refuses the other, and they are opposites:
-
 | | Earpiece (held to the ear) | Loudspeaker |
 |---|---|---|
-| **iPhone** | Yes — the default | No |
+| **iPhone** | Yes — the default | Yes — switchable |
 | **Android** | No | Yes — the default |
 
-No web API moves audio between the two. iOS always sends call audio to the
-receiver, Android always to the loudspeaker, and nothing a page can do changes
-that. So holding the phone to your ear works on the iPhone and not on the
-Android, while hands-free across the room works on the Android and not on the
-iPhone.
+**On the iPhone you can choose.** Safari exposes `navigator.audioSession`, and
+its `type` decides where sound lands: `play-and-record` sends it to the
+receiver, `playback` to the loudspeaker. Settings shows **Earpiece / Speaker**
+where that API exists.
+
+Be warned that it is reported to be unreliable on some iOS builds — the switch
+can take a moment, or not take at all. Try it on your own phone rather than
+trusting it.
+
+**On Android there is no equivalent.** Chrome implements no audio session API,
+and `setSinkId` only ever offers whole devices like headphones, never the two
+outputs inside the phone. The loudspeaker is the only option there.
 
 Earphones sidestep the question entirely, which is why a pair each is the setup
 worth using. Where a phone exposes an output picker the app shows one under

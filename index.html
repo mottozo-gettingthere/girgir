@@ -34,6 +34,12 @@
   <!-- ============ SETUP ============ -->
   <section class="view" id="viewSetup">
     <div class="stack">
+      <div class="install" id="resumeBar" hidden>
+        <p class="install-text" id="resumeText"></p>
+        <button class="btn small" id="btnResume">Resume</button>
+        <button class="icon-btn" id="btnResumeHide" aria-label="Dismiss">&times;</button>
+      </div>
+
       <div class="install" id="installBar" hidden>
         <p class="install-text" id="installText"></p>
         <button class="btn small" id="btnInstall" hidden>Install</button>
@@ -323,6 +329,10 @@
     <div class="vol" id="outRow">
       <span class="k">OUT</span>
       <select id="outSel" aria-label="Audio output" hidden></select>
+      <span class="routes" id="routeRow" hidden role="group" aria-label="Where sound comes out">
+        <button class="tog" id="btnEarpiece" aria-pressed="true">Earpiece</button>
+        <button class="tog" id="btnSpeaker" aria-pressed="false">Speaker</button>
+      </span>
       <span class="outnote" id="outNote">—</span>
     </div>
 

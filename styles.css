@@ -547,3 +547,7 @@ body {
 @media (min-width: 520px) {
   .firstrun .two { grid-template-columns: 1fr 1fr; gap: 20px; }
 }
+
+/* Earpiece / speaker pair, sized to sit in the OUT row beside its label. */
+.routes { display: flex; gap: 6px; flex: 1; min-width: 0; }
+.routes .tog { padding: 7px 6px; font-size: 10px; }

@@ -90,6 +90,10 @@ function head(t) {
   row('Choose output device', sinkOK, sinkOK ? 'an output picker is available' : 'routing is whatever the OS picks');
   const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
               (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  var hasAS = !!(navigator.audioSession && 'type' in navigator.audioSession);
+  row('Choose earpiece/speaker', hasAS,
+      hasAS ? 'audioSession can switch where sound comes out'
+            : 'no audioSession - output is whatever the system picks');
   row('Default routing', iOS ? 'EARPIECE' : 'SPEAKER',
       iOS ? 'iOS sends call audio to the receiver — hold it to your ear'
           : 'Android uses the loudspeaker');
