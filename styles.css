@@ -517,3 +517,33 @@ body {
 
 .vol input[type="text"]::placeholder { color: var(--dim); }
 .vol input[type="text"]:focus { outline: none; border-color: var(--rx); }
+
+/* ---------------- first-run install block ---------------- */
+
+/* Installing is a precondition rather than one of the four steps, so it sits
+   above them and spells out both platforms - whoever opens the link is on
+   one of the two and should not have to guess which half applies. */
+.firstrun {
+  background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--tx);
+  border-radius: 10px; padding: 16px; margin-bottom: 22px;
+}
+
+.firstrun h2 {
+  margin: 0 0 8px; font-family: var(--mono); font-size: 13px;
+  letter-spacing: 0.1em; text-transform: uppercase; color: var(--tx);
+}
+
+.firstrun h3 {
+  margin: 0 0 4px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: 0.14em; text-transform: uppercase; color: var(--rx);
+}
+
+.firstrun p { margin: 0 0 10px; font-size: 14px; line-height: 1.55; color: var(--muted); }
+.firstrun b { color: var(--fg); font-weight: 600; }
+.firstrun .two { display: grid; gap: 14px; margin: 14px 0 4px; }
+.firstrun .tip { margin: 10px 0 0; font-size: 13px; color: var(--dim); }
+
+@media (min-width: 520px) {
+  .firstrun .two { grid-template-columns: 1fr 1fr; gap: 20px; }
+}

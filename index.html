@@ -56,6 +56,28 @@
     <div class="stack">
       <h1 class="headline">Setting up</h1>
 
+      <div class="firstrun">
+        <h2>First, put it on both home screens</h2>
+        <p>Do this once, while you still have internet. After that it runs
+           with no connection at all.</p>
+        <div class="two">
+          <div>
+            <h3>On Android</h3>
+            <p>Open this page in Chrome and tap <b>Install</b> at the top.
+               If it is not there, open Chrome's <b>three-dot menu</b> and
+               pick <b>Add to Home screen</b>.</p>
+          </div>
+          <div>
+            <h3>On iPhone</h3>
+            <p>Open this page in <b>Safari</b>, tap <b>Share</b> (the square
+               with an arrow out of it), scroll down, then <b>Add to Home
+               Screen</b>.</p>
+          </div>
+        </div>
+        <p class="tip">Open it once from the home screen while you still have
+           internet, so it can store itself. After that it needs none.</p>
+      </div>
+
       <ol class="guide">
 
         <li>
@@ -160,13 +182,14 @@
         <dt>Bars, top right</dt><dd>Link quality, worked out from round-trip time, packet loss and jitter. Four bars is a clean link.</dd>
         <dt>LINK</dt><dd>Round-trip time and the share of audio packets being lost.</dd>
         <dt>BATT / THEIRS</dt><dd>Battery on each phone. The iPhone cannot report its own level to a web app, so it shows a dash there.</dd>
-        <dt>INPUT</dt><dd>Whether the live microphone is an earbud or the phone's own.</dd>
+        <dt>INPUT</dt><dd>Which microphone is actually open — <b>EARBUD</b>, <b>WIRED</b> or <b>BUILT-IN</b> — so a headset that failed to connect is obvious rather than silent.</dd>
+        <dt>NET</dt><dd>The network you share, and each phone's last number. No browser can read a Wi-Fi name, so this is how you confirm you are on the same one. Amber means different networks, and audio will not flow.</dd>
         <dt>OUT</dt><dd>Where their voice comes out. A picker appears where the phone allows one; otherwise it names what the system does — earpiece on iPhone, loudspeaker on Android.</dd>
-        <dt>Meters</dt><dd>Live audio level — yours in amber, theirs in teal.</dd>
+        <dt>Meters</dt><dd>Live audio level — yours in amber, theirs in teal. Set a name in settings and the labels use it instead of YOU and THEM.</dd>
       </dl>
 
       <h2 class="sub">Storage on this phone</h2>
-      <p class="prose">Only the app itself is cached, so it runs offline. There are no logs, no call history, no recordings, and no settings kept between launches — anything an older version left behind is wiped at startup.</p>
+      <p class="prose">Only the app itself is cached, so it runs offline. There are no logs, no call history and no recordings. Two things are remembered between launches — the name you chose and the fact that you installed it — and nothing else survives. Anything an older version left behind is wiped at startup.</p>
       <div class="storage">
         <span>Using <b id="storeUsed">—</b></span>
         <button class="btn small" id="btnClear">Clear cache</button>
