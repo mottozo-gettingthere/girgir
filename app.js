@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 19;
+const APP_VERSION = 20;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -976,8 +976,13 @@ function explainFailure() {
   } else if (!sameSubnet(mine, theirs)) {
     msg = 'No route \u2014 ' + mine + ' and ' + theirs + ' are on different networks.';
   } else {
-    msg = 'No route, though both are on ' + mine.split('.').slice(0, 3).join('.') +
-          '.x \u2014 this Wi-Fi is blocking phone-to-phone traffic. Try a phone hotspot instead.';
+    /* Both ends are on one subnet and the packets still are not arriving.
+       Client isolation is the usual reason but it is not the only one, and
+       guessing at a single cause sent one debugging session down the wrong
+       road - so name the addresses and let them be checked. */
+    msg = 'No route: ' + mine + ' \u25b8 ' + theirs + '. Same network, but nothing ' +
+          'arrives. A guest network, client isolation or a VPN on either device will ' +
+          'each do this \u2014 a phone hotspot is the quickest way to tell which.';
   }
   toast(msg, 12000);
   if (!ui.views.scan.hidden) {
