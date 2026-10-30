@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 17;
+const APP_VERSION = 18;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -933,6 +933,12 @@ function sdpHost(sdp) {
   return m ? m[1] : null;
 }
 
+function sameSubnet(a, b) {
+  const pa = String(a).split('.'), pb = String(b).split('.');
+  return pa.length === 4 && pb.length === 4 &&
+    pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2];
+}
+
 function showNet(a, b) {
   if (!a || !b) { ui.vNet.textContent = '\u2014'; ui.vNet.title = ''; return; }
   ui.vNet.title = 'you ' + a + '  \u00b7  them ' + b;
@@ -942,8 +948,7 @@ function showNet(a, b) {
     return;
   }
   const pa = a.split('.'), pb = b.split('.');
-  const sameLan = pa.length === 4 && pb.length === 4 &&
-    pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2];
+  const sameLan = sameSubnet(a, b);
   /* The subnet is as close to a network name as a browser can get, so when
      the two do not match it is worth saying so rather than leaving two
      addresses to be compared by eye. */
@@ -951,6 +956,35 @@ function showNet(a, b) {
     ? pa.slice(0, 3).join('.') + '.x  \u00b7  ' + pa[3] + ' \u25b8 ' + pb[3]
     : 'not the same network  \u00b7  ' + a + ' \u25b8 ' + b;
   ui.vNet.classList.toggle('warn', !sameLan);
+}
+
+/* LOST on its own says nothing, and the screen behind it still reads
+   "Linking up" - which is how a dead link looks like a slow one. The two
+   descriptions already hold the answer: a failure here is almost always one
+   of three things, and which one is readable from the addresses the two
+   sides offered each other. */
+function explainFailure() {
+  if (!pc) return '';
+  const mine = sdpHost(pc.localDescription && pc.localDescription.sdp);
+  const theirs = sdpHost(pc.remoteDescription && pc.remoteDescription.sdp);
+  showNet(mine, theirs);
+  let msg;
+  if (!mine || !theirs) {
+    msg = 'No route \u2014 one phone offered no address at all. Allow the microphone on both, then pair again.';
+  } else if (/\.local$/i.test(mine) || /\.local$/i.test(theirs)) {
+    msg = 'No route \u2014 a browser hid its address behind a .local name and this network cannot resolve it. Allow the microphone on both phones before pairing.';
+  } else if (!sameSubnet(mine, theirs)) {
+    msg = 'No route \u2014 ' + mine + ' and ' + theirs + ' are on different networks.';
+  } else {
+    msg = 'No route, though both are on ' + mine.split('.').slice(0, 3).join('.') +
+          '.x \u2014 this Wi-Fi is blocking phone-to-phone traffic. Try a phone hotspot instead.';
+  }
+  toast(msg, 12000);
+  if (!ui.views.scan.hidden) {
+    ui.scanStep.textContent = 'NO ROUTE';
+    ui.scanHint.textContent = msg;
+  }
+  return msg;
 }
 
 /* Tries the cheap repair first. While the control channel is alive the two
@@ -1373,6 +1407,7 @@ function newPeer() {
       goLive();
     } else if (s === 'failed' || s === 'disconnected') {
       setPill('lost', s === 'failed' ? 'LOST' : 'DROPPED');
+      if (s === 'failed') explainFailure();
       scheduleRecovery();
     }
   };

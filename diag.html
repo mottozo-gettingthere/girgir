@@ -37,6 +37,7 @@
 <button id="bMic">Test microphone</button>
 <button id="bBuzz">Test vibration</button>
 <button id="bTone">Test tone</button>
+<button id="bNet">Test local address</button>
 <div id="live"></div>
 
 <p id="ua"></p>
@@ -129,6 +130,55 @@ document.getElementById('bMic').onclick = async () => {
   } catch (e) {
     row('Microphone opened', false, e.name + ': ' + e.message, live);
   }
+};
+
+/* The test that matters when two phones exchange codes happily and then
+   never connect: what address does this browser actually hand the other one?
+   A .local name means the other side has to resolve it over mDNS, which many
+   networks quietly drop. */
+document.getElementById('bNet').onclick = async () => {
+  live.innerHTML = '';
+  let gotMic = false;
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(x => x.stop());
+    gotMic = true;
+  } catch (e) { /* reported below */ }
+  row('Microphone allowed', gotMic,
+      gotMic ? 'browsers only reveal a real local address once it is'
+             : 'without it the address is usually hidden', live);
+
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  pc.createDataChannel('probe');
+  const seen = [];
+  pc.onicecandidate = ev => {
+    const c = ev.candidate && ev.candidate.candidate;
+    if (!c) return;
+    const m = c.match(/candidate:\S+ \d+ (\S+) \d+ (\S+) (\d+) typ (\w+)/);
+    if (m) seen.push({ addr: m[2], typ: m[4] });
+  };
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise(done => {
+    const check = () => { if (pc.iceGatheringState === 'complete') done(); };
+    pc.addEventListener('icegatheringstatechange', check);
+    setTimeout(done, 4000);
+  });
+
+  const hosts = seen.filter(c => c.typ === 'host');
+  row('Candidates gathered', hosts.length ? String(hosts.length) : false,
+      hosts.length ? 'addresses this phone can be reached on'
+                   : 'none at all \u2014 nothing for the other phone to connect to', live);
+
+  const addrs = hosts.map(c => c.addr).filter((a, i, all) => all.indexOf(a) === i);
+  const hidden = addrs.filter(a => /\.local$/i.test(a));
+  const real = addrs.filter(a => !/\.local$/i.test(a));
+
+  hidden.forEach(a => row('Address hidden', 'mDNS',
+      a + ' \u2014 the other phone must resolve this name, and many networks will not let it', live));
+  real.forEach(a => row('Address offered', a,
+      'compare with the other phone: the first three numbers must match', live));
+  if (!addrs.length) row('Address offered', false, 'no host candidate', live);
+  pc.close();
 };
 
 document.getElementById('bBuzz').onclick = () => {
