@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Earpiece diagnostics</title>
+<style>
+  :root { color-scheme: dark; --bg:#0a0e10; --panel:#111a1e; --line:#24343b;
+          --fg:#e8f0f2; --muted:#7d939b; --ok:#4fb6a3; --no:#e2574c; --maybe:#f0a830; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px ui-monospace,SFMono-Regular,Menlo,monospace;
+         padding: max(16px, env(safe-area-inset-left)) 16px calc(32px + env(safe-area-inset-bottom)); }
+  h1 { font-size:18px; margin:18px 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 18px; font-size:12px; line-height:1.5; }
+  h2 { font-size:11px; letter-spacing:.16em; color:var(--maybe); margin:22px 0 8px; }
+  .row { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+         padding:9px 0; border-bottom:1px solid var(--line); }
+  .name { min-width:0; }
+  .name b { font-weight:600; display:block; }
+  .name small { color:var(--muted); font-size:11px; display:block; margin-top:2px; line-height:1.4; word-break:break-word; }
+  .tag { flex:none; font-size:10px; font-weight:600; letter-spacing:.1em; padding:3px 8px; border-radius:999px; border:1px solid; }
+  .yes { color:var(--ok); border-color:var(--ok); }
+  .no  { color:var(--no); border-color:var(--no); }
+  .mid { color:var(--maybe); border-color:var(--maybe); }
+  button { font:inherit; background:var(--panel); color:var(--fg); border:1px solid var(--line);
+           border-radius:8px; padding:12px 16px; margin:6px 6px 0 0; cursor:pointer; }
+  #ua { color:var(--muted); font-size:11px; word-break:break-all; margin-top:14px; line-height:1.5; }
+</style>
+</head>
+<body>
+<h1>Earpiece diagnostics</h1>
+<p class="sub">Open this on each phone. It checks only what the app actually relies on. Nothing is sent anywhere and nothing is stored.</p>
+
+<div id="out"></div>
+
+<h2>LIVE TESTS</h2>
+<button id="bMic">Test microphone</button>
+<button id="bBuzz">Test vibration</button>
+<button id="bTone">Test tone</button>
+<div id="live"></div>
+
+<p id="ua"></p>
+
+<script>
+const out = document.getElementById('out');
+const live = document.getElementById('live');
+
+function row(name, state, detail, parent) {
+  const cls = state === true ? 'yes' : state === false ? 'no' : 'mid';
+  const label = state === true ? 'YES' : state === false ? 'NO' : String(state);
+  const d = document.createElement('div');
+  d.className = 'row';
+  d.innerHTML = '<span class="name"><b></b><small></small></span><span class="tag ' + cls + '"></span>';
+  d.querySelector('b').textContent = name;
+  d.querySelector('small').textContent = detail || '';
+  d.querySelector('.tag').textContent = label;
+  (parent || out).appendChild(d);
+  return d;
+}
+function head(t) {
+  const h = document.createElement('h2');
+  h.textContent = t;
+  out.appendChild(h);
+}
+
+(async () => {
+  head('CORE — the app cannot run without these');
+  row('Secure context', !!window.isSecureContext, location.protocol + '//' + location.hostname);
+  row('getUserMedia', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia), 'microphone access');
+  row('RTCPeerConnection', !!window.RTCPeerConnection, 'the audio link itself');
+  row('CompressionStream', (() => { try { new CompressionStream('deflate-raw'); return true; } catch (e) { return false; } })(), 'shrinks the pairing QR');
+  row('Service worker', 'serviceWorker' in navigator, 'offline caching');
+  let reg = null;
+  try { reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); } catch (e) {}
+  row('Worker registered', !!reg, reg ? reg.scope : 'visit the app itself first');
+
+  head('PAIRING');
+  let formats = [];
+  const hasBD = 'BarcodeDetector' in window;
+  if (hasBD) { try { formats = await window.BarcodeDetector.getSupportedFormats(); } catch (e) {} }
+  const qrNative = hasBD && formats.includes('qr_code');
+  row('Native QR reader', qrNative, qrNative ? 'the 127 KB fallback is never downloaded' : 'fallback decoder will be cached instead');
+
+  head('AUDIO OUTPUT — where the other voice comes out');
+  const a = document.createElement('audio');
+  let volOK = false;
+  try { a.volume = 0.42; volOK = Math.abs(a.volume - 0.42) < 0.02; } catch (e) {}
+  row('Software volume', volOK, volOK ? 'in-app volume slider works' : 'iOS ignores it — use the phone buttons');
+  const sinkOK = typeof a.setSinkId === 'function';
+  row('Choose output device', sinkOK, sinkOK ? 'an output picker is available' : 'routing is whatever the OS picks');
+  const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+              (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  row('Default routing', iOS ? 'EARPIECE' : 'SPEAKER',
+      iOS ? 'iOS sends call audio to the receiver — hold it to your ear'
+          : 'Android uses the loudspeaker');
+
+  head('EXTRAS — nice to have, not required');
+  row('Vibration', !!navigator.vibrate, navigator.vibrate ? 'pings buzz' : 'iOS has no vibration API — pings are tone only');
+  row('Battery level', !!navigator.getBattery, navigator.getBattery ? 'your level shows and is shared' : 'iOS cannot report battery to a web app');
+  row('Screen wake lock', !!navigator.wakeLock, 'keeps the screen on mid-conversation');
+
+  head('STORAGE');
+  let usage = null;
+  try { const e = await navigator.storage.estimate(); usage = e.usage; } catch (e) {}
+  row('Usage readable', usage != null, usage != null ? Math.round(usage / 1024) + ' KB cached' : 'not reported');
+  let lsCount = 0;
+  try { lsCount = localStorage.length; } catch (e) {}
+  row('Local storage items', lsCount === 0 ? true : String(lsCount), lsCount === 0 ? 'nothing stored' : 'entries present');
+
+  document.getElementById('ua').textContent = navigator.userAgent;
+})();
+
+document.getElementById('bMic').onclick = async () => {
+  live.innerHTML = '';
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
+    const t = s.getAudioTracks()[0];
+    row('Microphone opened', true, 'device: ' + (t.label || 'unnamed'), live);
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    row('Inputs seen', String(devs.filter(d => d.kind === 'audioinput').length),
+        devs.filter(d => d.kind === 'audioinput').map(d => d.label || '(unnamed)').join(' · ') || 'none', live);
+    row('Outputs seen', String(devs.filter(d => d.kind === 'audiooutput').length),
+        devs.filter(d => d.kind === 'audiooutput').map(d => d.label || '(unnamed)').join(' · ') || 'iOS does not list outputs', live);
+    s.getTracks().forEach(x => x.stop());
+  } catch (e) {
+    row('Microphone opened', false, e.name + ': ' + e.message, live);
+  }
+};
+
+document.getElementById('bBuzz').onclick = () => {
+  live.innerHTML = '';
+  let ok = false;
+  try { ok = !!(navigator.vibrate && navigator.vibrate([0, 160, 90, 160])); } catch (e) {}
+  row('Vibration fired', ok, ok ? 'you should have felt two buzzes' : 'not supported on this phone', live);
+};
+
+document.getElementById('bTone').onclick = () => {
+  live.innerHTML = '';
+  try {
+    const C = window.AudioContext || window.webkitAudioContext;
+    const ctx = new C();
+    const t0 = ctx.currentTime;
+    [[880, 0.42, 0.62], [1760, 0.12, 0.34]].forEach(([f, amp, dur]) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(amp, t0 + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(ctx.destination);
+      o.start(t0); o.stop(t0 + dur + 0.02);
+    });
+    row('Tone played', true, 'rate ' + ctx.sampleRate + ' Hz — note which speaker it came from', live);
+  } catch (e) {
+    row('Tone played', false, e.message, live);
+  }
+};
+</script>
+</body>
+</html>

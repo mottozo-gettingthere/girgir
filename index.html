@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Earpiece</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0e10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Earpiece">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot" id="brandDot"></span>
+    <span>EARPIECE</span>
+  </div>
+  <div class="bar-right">
+    <span class="bars" id="bars" data-q="0" aria-label="Link quality"><i></i><i></i><i></i><i></i></span>
+    <span class="pill" id="statePill" data-state="idle">IDLE</span>
+    <button class="icon-btn" id="btnSettings" aria-label="Settings">&#9881;</button>
+    <button class="icon-btn" id="btnHelp" aria-label="Setup guide">?</button>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ SETUP ============ -->
+  <section class="view" id="viewSetup">
+    <div class="stack">
+      <h1 class="headline">Open a channel</h1>
+      <p class="prose">One of you creates the channel and shows a code. The other scans it, then shows a code back. Two scans and you are linked.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnCreate">Create channel</button>
+        <button class="btn" id="btnJoin">Join channel</button>
+      </div>
+      <button class="btn ghost" id="btnGuide">First time? Read the 4-step setup</button>
+      <p class="note">Both phones must be on the same Wi-Fi or hotspot.</p>
+    </div>
+  </section>
+
+  <!-- ============ GUIDE ============ -->
+  <section class="view" id="viewHelp" hidden>
+    <div class="stack">
+      <h1 class="headline">Setting up</h1>
+
+      <ol class="guide">
+
+        <li>
+          <svg viewBox="0 0 240 110" class="ill" aria-hidden="true">
+            <rect x="22" y="20" width="52" height="76" rx="9" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+            <rect x="29" y="29" width="38" height="56" rx="3" fill="var(--bg)"/>
+            <circle cx="48" cy="90" r="2.5" fill="var(--line)"/>
+            <circle cx="76" cy="58" r="3.5" fill="var(--tx)"/>
+            <g fill="none" stroke="var(--tx)" stroke-width="3" stroke-linecap="round">
+              <path d="M80.1 69.3 A 12 12 0 0 1 80.1 46.7" opacity="1"/>
+              <path d="M82.8 76.8 A 20 20 0 0 1 82.8 39.2" opacity=".62"/>
+              <path d="M85.6 84.3 A 28 28 0 0 1 85.6 31.7" opacity=".34"/>
+            </g>
+            <rect x="166" y="20" width="52" height="76" rx="9" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+            <rect x="173" y="29" width="38" height="56" rx="3" fill="var(--bg)"/>
+            <path d="M182 57 l6 7 13 -15" fill="none" stroke="var(--rx)" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <h2>1 · Android makes the network</h2>
+          <p>Turn on the Android phone's hotspot and join it from the iPhone. It needs no internet — it is only there to carry your voices.</p>
+          <p class="tip">Set the band to 2.4 GHz, and turn off "switch hotspot off when no devices are connected". On the iPhone, turn off Wi-Fi Assist.</p>
+        </li>
+
+        <li>
+          <svg viewBox="0 0 240 110" class="ill" aria-hidden="true">
+            <rect x="20" y="16" width="56" height="84" rx="9" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+            <rect x="27" y="27" width="42" height="42" rx="3" fill="#fff"/>
+            <g fill="#0a0e10">
+              <rect x="31" y="31" width="10" height="10"/><rect x="55" y="31" width="10" height="10"/>
+              <rect x="31" y="55" width="10" height="10"/>
+              <rect x="45" y="45" width="5" height="5"/><rect x="52" y="52" width="5" height="5"/>
+              <rect x="45" y="59" width="5" height="5"/><rect x="59" y="45" width="5" height="5"/>
+              <rect x="59" y="59" width="5" height="5"/>
+            </g>
+            <path d="M90 58 H138" stroke="var(--rx)" stroke-width="3" stroke-linecap="round"/>
+            <path d="M131 50 l9 8 -9 8" fill="none" stroke="var(--rx)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <rect x="152" y="16" width="56" height="84" rx="9" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+            <rect x="159" y="27" width="42" height="42" rx="3" fill="var(--bg)"/>
+            <g fill="none" stroke="var(--rx)" stroke-width="2.6" stroke-linecap="round">
+              <path d="M165 38 v-5 h6"/><path d="M195 38 v-5 h-6"/>
+              <path d="M165 58 v5 h6"/><path d="M195 58 v5 h-6"/>
+            </g>
+            <circle cx="180" cy="48" r="5" fill="var(--rx)" opacity=".5"/>
+          </svg>
+          <h2>2 · Pair with two scans</h2>
+          <p>One taps <b>Create channel</b> and holds up the code. The other taps <b>Join channel</b> and scans it, then shows the reply code back to be scanned.</p>
+          <p class="tip">Turn both screens up bright. If a camera will not cooperate, open "Use text" under the code and paste it across instead.</p>
+        </li>
+
+        <li>
+          <svg viewBox="0 0 240 110" class="ill" aria-hidden="true">
+            <g>
+              <circle cx="46" cy="24" r="10" fill="var(--panel-2)" stroke="var(--rx)" stroke-width="2"/>
+              <circle cx="46" cy="24" r="4" fill="var(--rx)"/>
+              <path d="M39 31 l-5 8" stroke="var(--rx)" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="74" cy="24" r="10" fill="var(--panel-2)" stroke="var(--rx)" stroke-width="2"/>
+              <circle cx="74" cy="24" r="4" fill="var(--rx)"/>
+              <path d="M81 31 l5 8" stroke="var(--rx)" stroke-width="4" stroke-linecap="round"/>
+              <path d="M60 40 V56" stroke="var(--line)" stroke-width="2" stroke-dasharray="3 4" stroke-linecap="round"/>
+              <rect x="46" y="58" width="28" height="44" rx="5" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+              <rect x="50" y="63" width="20" height="31" rx="2" fill="var(--bg)"/>
+            </g>
+            <path d="M120 16 V96" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="2 6"/>
+            <g>
+              <circle cx="166" cy="24" r="10" fill="var(--panel-2)" stroke="var(--tx)" stroke-width="2"/>
+              <circle cx="166" cy="24" r="4" fill="var(--tx)"/>
+              <path d="M159 31 l-5 8" stroke="var(--tx)" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="194" cy="24" r="10" fill="var(--panel-2)" stroke="var(--tx)" stroke-width="2"/>
+              <circle cx="194" cy="24" r="4" fill="var(--tx)"/>
+              <path d="M201 31 l5 8" stroke="var(--tx)" stroke-width="4" stroke-linecap="round"/>
+              <path d="M180 40 V56" stroke="var(--line)" stroke-width="2" stroke-dasharray="3 4" stroke-linecap="round"/>
+              <rect x="166" y="58" width="28" height="44" rx="5" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+              <rect x="170" y="63" width="20" height="31" rx="2" fill="var(--bg)"/>
+            </g>
+          </svg>
+          <h2>3 · A pair each</h2>
+          <p>Give each phone its own pair of earphones. Simpler than splitting one pair, and it works with any model, AirPods included — you each hear and speak through your own set.</p>
+          <p class="tip">Rather hold the phone to your ear? On the iPhone that is already what happens: call audio goes to the earpiece. Android always uses the loudspeaker and a web app cannot switch it.</p>
+        </li>
+
+        <li>
+          <svg viewBox="0 0 240 110" class="ill" aria-hidden="true">
+            <rect x="78" y="8" width="84" height="94" rx="11" fill="var(--panel-2)" stroke="var(--line)" stroke-width="2"/>
+            <g fill="var(--bg)">
+              <rect x="86" y="18" width="21" height="9" rx="4"/>
+              <rect x="110" y="18" width="21" height="9" rx="4"/>
+            </g>
+            <rect x="134" y="18" width="21" height="9" rx="4" fill="var(--rx)" opacity=".85"/>
+            <circle cx="120" cy="62" r="27" fill="var(--tx)"/>
+            <circle cx="120" cy="62" r="34" fill="none" stroke="var(--tx)" stroke-width="2" opacity=".3"/>
+            <path d="M196 62 h-28" stroke="var(--rx)" stroke-width="3" stroke-linecap="round"/>
+            <path d="M176 54 l-9 8 9 8" fill="none" stroke="var(--rx)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <h2>4 · Pick how you talk</h2>
+          <p><b>Open</b> keeps the microphone live — best with earbuds. <b>Latch</b> goes live on a tap and stops on the next. <b>Hold</b> is live only while pressed, which is what you want on a speaker.</p>
+          <p class="tip">You each choose your own mode. They do not have to match.</p>
+        </li>
+
+      </ol>
+
+      <h2 class="sub">What the readouts mean</h2>
+      <dl class="legend">
+        <dt>Bars, top right</dt><dd>Link quality, worked out from round-trip time, packet loss and jitter. Four bars is a clean link.</dd>
+        <dt>LINK</dt><dd>Round-trip time and the share of audio packets being lost.</dd>
+        <dt>BATT / THEIRS</dt><dd>Battery on each phone. The iPhone cannot report its own level to a web app, so it shows a dash there.</dd>
+        <dt>INPUT</dt><dd>Whether the live microphone is an earbud or the phone's own.</dd>
+        <dt>OUT</dt><dd>Where their voice comes out. A picker appears where the phone allows one; otherwise it names what the system does — earpiece on iPhone, loudspeaker on Android.</dd>
+        <dt>Meters</dt><dd>Live audio level — yours in amber, theirs in teal.</dd>
+      </dl>
+
+      <h2 class="sub">Storage on this phone</h2>
+      <p class="prose">Only the app itself is cached, so it runs offline. There are no logs, no call history, no recordings, and no settings kept between launches — anything an older version left behind is wiped at startup.</p>
+      <div class="storage">
+        <span>Using <b id="storeUsed">—</b></span>
+        <button class="btn small" id="btnClear">Clear cache</button>
+      </div>
+
+      <button class="btn" id="btnHelpBack">Back</button>
+    </div>
+  </section>
+
+  <!-- ============ SHOW CODE ============ -->
+  <section class="view" id="viewCode" hidden>
+    <div class="stack">
+      <p class="step" id="codeStep">STEP 1 OF 2</p>
+      <p class="prose" id="codeHint">Let the other phone scan this.</p>
+      <div class="qr-wrap"><canvas id="qrCanvas"></canvas></div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnNext">Now scan their code</button>
+      </div>
+      <details class="fallback">
+        <summary>Camera not working? Use text</summary>
+        <textarea id="codeText" readonly rows="3" spellcheck="false"></textarea>
+        <button class="btn small" id="btnCopy">Copy code</button>
+      </details>
+      <button class="link" id="btnCancel1">Cancel</button>
+    </div>
+  </section>
+
+  <!-- ============ SCAN ============ -->
+  <section class="view" id="viewScan" hidden>
+    <div class="stack">
+      <p class="step" id="scanStep">SCAN</p>
+      <p class="prose" id="scanHint">Point at the other phone's code.</p>
+      <div class="cam-wrap">
+        <video id="cam" playsinline muted></video>
+        <div class="reticle"></div>
+      </div>
+      <details class="fallback">
+        <summary>Camera not working? Paste the code</summary>
+        <textarea id="pasteText" rows="3" spellcheck="false" placeholder="Paste the code from the other phone"></textarea>
+        <button class="btn small" id="btnPaste">Use this code</button>
+      </details>
+      <button class="link" id="btnCancel2">Cancel</button>
+    </div>
+  </section>
+
+  <!-- ============ LIVE ============ -->
+  <section class="view live" id="viewLive" hidden>
+
+    <div class="readout">
+      <div class="status" id="statusText">QUIET</div>
+      <div class="live-banner" id="liveBanner" hidden>MIC LIVE</div>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <span class="meter-label">YOU</span>
+        <div class="track"><div class="fill tx" id="meterYou"></div></div>
+      </div>
+      <div class="meter">
+        <span class="meter-label">THEM</span>
+        <div class="track"><div class="fill rx" id="meterThem"></div></div>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div class="cell"><span class="k">LINK</span><span class="v" id="vLink">—</span></div>
+      <div class="cell"><span class="k">BATT</span><span class="v" id="vBattYou">—</span></div>
+      <div class="cell"><span class="k">THEIRS</span><span class="v" id="vBattThem">—</span></div>
+      <div class="cell"><span class="k">INPUT</span><span class="v" id="vInput">—</span></div>
+    </div>
+
+    <div class="vol netrow">
+      <span class="k">NET</span>
+      <span class="v" id="vNet">&mdash;</span>
+    </div>
+
+    <div class="modes" role="group" aria-label="Talk mode">
+      <button class="mode" data-mode="open">OPEN</button>
+      <button class="mode" data-mode="latch">LATCH</button>
+      <button class="mode" data-mode="hold">HOLD</button>
+    </div>
+
+    <div class="console">
+      <button class="talk" id="talkBtn">
+        <span class="talk-label" id="talkLabel">HOLD TO TALK</span>
+      </button>
+      <button class="ping" id="pingBtn">
+        <span>PING</span>
+        <small id="pingSub">hold = !</small>
+      </button>
+    </div>
+
+    <div class="toggles">
+      <button class="tog" id="btnRelink">Relink</button>
+      <button class="tog danger" id="btnHangup">End</button>
+    </div>
+
+  </section>
+
+</main>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" id="btnSheetClose" aria-label="Close settings">&times;</button>
+    </div>
+
+    <div class="vol">
+      <span class="k">MIC</span>
+      <input type="range" id="micLvl" min="0" max="200" value="100" aria-label="Microphone level">
+      <span class="v" id="micVal">100</span>
+    </div>
+    <p class="note">How loudly you are sent. Push past 100 for a quiet headset; too far and you will distort.</p>
+
+    <div class="vol" id="volRow" hidden>
+      <span class="k">VOL</span>
+      <input type="range" id="vol" min="0" max="100" value="100" aria-label="Incoming volume">
+      <span class="v" id="volVal">100</span>
+    </div>
+    <p class="note" id="volNote" hidden>Use the phone's volume buttons to set the incoming level.</p>
+
+    <div class="vol" id="outRow">
+      <span class="k">OUT</span>
+      <select id="outSel" aria-label="Audio output" hidden></select>
+      <span class="outnote" id="outNote">—</span>
+    </div>
+
+    <div class="toggles">
+      <button class="tog" id="togHalf" aria-pressed="true">Half duplex</button>
+      <button class="tog" id="togRoger" aria-pressed="true">Roger beep</button>
+    </div>
+    <p class="note">Half duplex mutes the other person while you transmit, so you never hear yourself back. Roger beep sounds a short tone when they stop talking. Both start on.</p>
+  </div>
+</div>
+
+<div class="flash" id="flash" hidden></div>
+<div class="toast" id="toast" hidden></div>
+<audio id="remoteAudio" autoplay playsinline></audio>
+
+<script src="vendor/qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
