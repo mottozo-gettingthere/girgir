@@ -1,4 +1,4 @@
-# Earpiece
+# Girgir
 
 A two-phone intercom that runs with no internet, no server and no account.
 Audio goes directly phone to phone over Wi-Fi using WebRTC. Pairing is a
@@ -24,12 +24,12 @@ at startup.
 Any static HTTPS host works. GitHub Pages is free and fine:
 
 ```bash
-git init && git add . && git commit -m "Earpiece"
-gh repo create earpiece --public --source=. --push
-gh api -X POST repos/:owner/earpiece/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'
+git init && git add . && git commit -m "Girgir"
+gh repo create girgir --public --source=. --push
+gh api -X POST repos/:owner/girgir/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'
 ```
 
-The site appears at `https://<your-user>.github.io/earpiece/` within a minute
+The site appears at `https://<your-user>.github.io/girgir/` within a minute
 or two. Any later change needs a `git push` and a reload on both phones.
 
 To try it on your Mac first: `python3 -m http.server 8777` and open
@@ -50,7 +50,7 @@ microphone and camera when asked. Now it works with no network.
 
 ### 3. Check each phone
 
-Open `diag.html` on both phones — `https://<your-user>.github.io/earpiece/diag.html`.
+Open `diag.html` on both phones — `https://<your-user>.github.io/girgir/diag.html`.
 It reports exactly what that phone supports: microphone, WebRTC, QR decoding,
 whether software volume works, where audio comes out by default, vibration and
 battery. The three buttons at the bottom test the microphone, the buzz and the
@@ -264,7 +264,7 @@ that fails when there is no internet, which is exactly when you want this to wor
 ## Changing it
 
 Bump `CACHE` in `sw.js` whenever you change a file, or the phones keep serving
-the cached version. It is currently `earpiece-v2`.
+the cached version. It is currently `girgir-v1`.
 
 If you add a file that must work offline, add it to `ASSETS` in `sw.js` too —
 and check it returns 200, because one bad path makes `addAll` reject and the

@@ -1,4 +1,4 @@
-/* Earpiece — peer-to-peer LAN intercom. No server, no internet.
+/* Girgir — peer-to-peer LAN intercom. No server, no internet.
    Signalling is a two-step QR exchange; audio and control run over WebRTC. */
 (() => {
 'use strict';
@@ -73,7 +73,7 @@ function purgeStoredData() {
 function load() {
   if (!REMEMBER_SETTINGS) return;
   try {
-    const s = JSON.parse(localStorage.getItem('earpiece') || '{}');
+    const s = JSON.parse(localStorage.getItem('girgir') || '{}');
     if (s.mode) mode = s.mode;
     if (typeof s.halfDuplex === 'boolean') halfDuplex = s.halfDuplex;
     if (typeof s.rogerBeep === 'boolean') rogerBeep = s.rogerBeep;
@@ -83,7 +83,7 @@ function load() {
 function save() {
   if (!REMEMBER_SETTINGS) return;
   try {
-    localStorage.setItem('earpiece', JSON.stringify({ mode, halfDuplex, rogerBeep, volume }));
+    localStorage.setItem('girgir', JSON.stringify({ mode, halfDuplex, rogerBeep, volume }));
   } catch (e) { /* storage unavailable */ }
 }
 
@@ -169,7 +169,7 @@ async function packDesc(role, sdp) {
 
 async function unpackDesc(code) {
   const text = String(code).trim();
-  if (!text.startsWith(PROTO)) throw new Error('That is not an Earpiece code.');
+  if (!text.startsWith(PROTO)) throw new Error('That is not a Girgir code.');
   const role = text[2], tag = text[3];
   const payload = unb64u(text.slice(4));
   if (role !== 'O' && role !== 'A') throw new Error('That code is malformed.');
@@ -614,7 +614,7 @@ function initMediaSession() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: 'Voice channel',
-      artist: 'Earpiece',
+      artist: 'Girgir',
       album: 'Offline'
     });
     navigator.mediaSession.setActionHandler('play', () => {
@@ -1039,7 +1039,7 @@ async function clearData() {
     const keys = await caches.keys();
     await Promise.all(keys.map(k => caches.delete(k)));
   } catch (e) { /* no cache storage */ }
-  try { localStorage.removeItem('earpiece'); } catch (e) {}
+  try { localStorage.removeItem('girgir'); } catch (e) {}
   try {
     if (navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();

@@ -1,6 +1,6 @@
 {
-  "name": "Earpiece",
-  "short_name": "Earpiece",
+  "name": "Girgir",
+  "short_name": "Girgir",
   "description": "Offline peer-to-peer intercom for two phones on the same Wi-Fi.",
   "start_url": ".",
   "scope": ".",
