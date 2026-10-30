@@ -201,6 +201,23 @@ That is deliberate: neither mode gives you any way to see that you are still
 transmitting once the screen is off, and a hot microphone in a pocket is worse
 than a dropped call. OPEN is the pocket mode, and its button still mutes you.
 
+## Pairing, and why it is not one scan
+
+Two codes have to cross, so two scans happen. What the app removes is the step
+in between: the phone that created the channel **keeps its camera running
+behind its own code**, so once the reply appears it links itself. Nobody
+presses anything between the scans.
+
+It would be neater for the first phone to open its camera the moment the other
+one scans, and that is not possible. Until the reply arrives there is no
+channel, and the first phone's ICE agent cannot even validate the other's
+probes without a remote description, so there is no event to react to. Leaving
+the camera open and waiting is the closest thing to it.
+
+The decode loop runs on a timer rather than `requestAnimationFrame`, because
+rAF stops whenever the page is not being painted, which would freeze scanning
+without any sign of it.
+
 ## If the link drops
 
 There are two different situations here and they cost very different amounts

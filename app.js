@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -49,6 +49,7 @@ const ui = {
   updateBar: $('updateBar'), updateText: $('updateText'), btnUpdate: $('btnUpdate'),
   verNow: $('verNow'), verLatest: $('verLatest'),
   dropBar: $('dropBar'), dropText: $('dropText'), btnDropPair: $('btnDropPair'),
+  watching: $('watching'), codeCam: $('codeCam'),
   resumeBar: $('resumeBar'), resumeText: $('resumeText'),
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
@@ -1178,8 +1179,11 @@ async function createChannel() {
   await pc.setLocalDescription(await pc.createOffer({ offerToReceiveAudio: true }));
   await gatheringDone();
   const code = await packDesc('O', pc.localDescription.sdp);
-  showCode(code, 'STEP 1 OF 2', 'Let the other phone scan this, then tap below.',
-    'Now scan their code', () => openScanner('STEP 2 OF 2', 'Scan the code their phone shows.', takeAnswer));
+  showCode(code, 'STEP 1 OF 2',
+    'Let the other phone scan this. Then turn this phone towards their reply.',
+    'Scan full screen instead',
+    () => openScanner('STEP 2 OF 2', 'Scan the code their phone shows.', takeAnswer),
+    takeAnswer);
 }
 
 async function joinChannel() {
@@ -1212,23 +1216,28 @@ async function takeOffer(code) {
 async function takeAnswer(code) {
   const { role, sdp } = await unpackDesc(code);
   if (role !== 'A') throw new Error('That is the wrong code — scan their reply code.');
+  /* The reply can be caught from either screen, so show the same thing on
+     both rather than leaving the code screen sitting there. */
   ui.camWrap.hidden = true;
   ui.scanStep.textContent = 'CONNECTING';
   ui.scanHint.textContent = 'Linking up…';
+  show('scan');
   await pc.setRemoteDescription({ type: 'answer', sdp });
 }
 
-function showCode(code, step, hint, nextLabel, onNext) {
+function showCode(code, step, hint, nextLabel, onNext, watchHandler) {
   ui.codeStep.textContent = step;
   ui.codeHint.textContent = hint;
   ui.codeText.value = code;
   ui.btnNext.textContent = nextLabel;
   ui.btnNext.onclick = onNext;
   show('code');
+  ui.watching.hidden = true;
   requestAnimationFrame(() => {
     try { drawQR(code, ui.qrCanvas); }
     catch (e) { toast('Code too long for a QR — use the text option', 5000); }
   });
+  if (watchHandler) watchForAnswer(watchHandler);
 }
 
 function drawQR(text, canvas) {
@@ -1280,54 +1289,58 @@ function loadJsQR() {
   return jsqrLoad;
 }
 
-async function openScanner(step, hint, handler) {
-  ui.scanStep.textContent = step;
-  ui.scanHint.textContent = hint;
-  ui.camWrap.hidden = false;
-  ui.pasteText.value = '';
-  ui.btnPaste.onclick = () => consume(ui.pasteText.value, handler);
-  show('scan');
-
+/* The camera and the decode loop are shared, because the creator watches for
+   the reply from the code screen while the joiner scans from the scan screen.
+   Only one of those is ever on, so a single stream is enough. */
+async function startCamera(videoEl) {
   const detector = await nativeDetector();
   if (!detector) {
     try { await loadJsQR(); }
-    catch (e) { toast('QR reader unavailable — paste the code instead', 5000); }
+    catch (e) { toast('QR reader unavailable - paste the code instead', 5000); }
   }
-
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
     });
   } catch (e) {
-    toast('Camera blocked — paste the code instead', 5000);
-    return;
+    return { ok: false, detector: null };
   }
-  ui.cam.srcObject = scanStream;
-  await ui.cam.play().catch(() => {});
+  videoEl.srcObject = scanStream;
+  await videoEl.play().catch(() => {});
   scanning = true;
+  return { ok: true, detector: detector };
+}
 
+/* Paced by a timer rather than requestAnimationFrame. Decoding does not need
+   to line up with frames, ten looks a second is plenty, and rAF stops
+   entirely whenever the page is not being painted - which would silently
+   freeze scanning. */
+const SCAN_INTERVAL_MS = 100;
+
+function runScanLoop(videoEl, detector, handler) {
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d', { willReadFrequently: true });
   let busy = false;
 
   const tick = async () => {
     if (!scanning) return;
-    const v = ui.cam;
+    const v = videoEl;
     if (!busy && v.readyState >= 2 && v.videoWidth) {
       busy = true;
       try {
         const side = Math.min(v.videoWidth, v.videoHeight);
-        const s = Math.min(side, 760);
-        canvas.width = s;
-        canvas.height = s;
-        g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2, side, side, 0, 0, s, s);
+        const sz = Math.min(side, 760);
+        canvas.width = sz;
+        canvas.height = sz;
+        g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2,
+                    side, side, 0, 0, sz, sz);
         let text = null;
         if (detector) {
           const codes = await detector.detect(canvas);
           if (codes && codes.length) text = codes[0].rawValue;
         } else if (window.jsQR) {
-          const img = g.getImageData(0, 0, s, s);
-          const found = jsQR(img.data, s, s, { inversionAttempts: 'dontInvert' });
+          const img = g.getImageData(0, 0, sz, sz);
+          const found = jsQR(img.data, sz, sz, { inversionAttempts: 'dontInvert' });
           if (found) text = found.data;
         }
         if (text && text.startsWith(PROTO)) {
@@ -1338,19 +1351,50 @@ async function openScanner(step, hint, handler) {
       } catch (e) { /* skip this frame */ }
       busy = false;
     }
-    rafId = requestAnimationFrame(tick);
+    rafId = setTimeout(tick, SCAN_INTERVAL_MS);
   };
-  rafId = requestAnimationFrame(tick);
+  rafId = setTimeout(tick, 0);
+}
+
+/* Watching for the reply from behind the code, so the creator never has to
+   press anything between the two scans. There is no way to know the other
+   phone has scanned - no channel exists until its answer arrives - so the
+   camera simply stays open and waits. */
+async function watchForAnswer(handler) {
+  const started = await startCamera(ui.codeCam);
+  if (!started.ok) { ui.watching.hidden = true; return; }
+  ui.watching.hidden = false;
+  runScanLoop(ui.codeCam, started.detector, handler);
+}
+
+async function openScanner(step, hint, handler) {
+  /* The code screen may already be holding the camera. */
+  stopScanner();
+  ui.scanStep.textContent = step;
+  ui.scanHint.textContent = hint;
+  ui.camWrap.hidden = false;
+  ui.pasteText.value = '';
+  ui.btnPaste.onclick = () => consume(ui.pasteText.value, handler);
+  show('scan');
+
+  const started = await startCamera(ui.cam);
+  if (!started.ok) {
+    toast('Camera blocked — paste the code instead', 5000);
+    return;
+  }
+  runScanLoop(ui.cam, started.detector, handler);
 }
 
 function stopScanner() {
   scanning = false;
-  cancelAnimationFrame(rafId);
+  clearTimeout(rafId);
   if (scanStream) {
     scanStream.getTracks().forEach(t => t.stop());
     scanStream = null;
   }
   ui.cam.srcObject = null;
+  ui.codeCam.srcObject = null;
+  ui.watching.hidden = true;
 }
 
 async function consume(code, handler) {
@@ -1651,7 +1695,8 @@ ui.togHalf.onclick = () => {
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
-  'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair'].forEach(k => {
+  'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair',
+  'watching', 'codeCam'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 

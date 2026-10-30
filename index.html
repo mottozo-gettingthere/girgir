@@ -133,7 +133,8 @@
             <circle cx="180" cy="48" r="5" fill="var(--rx)" opacity=".5"/>
           </svg>
           <h2>2 · Pair with two scans</h2>
-          <p>One taps <b>Create channel</b> and holds up the code. The other taps <b>Join channel</b> and scans it, then shows the reply code back to be scanned.</p>
+          <p>One taps <b>Create channel</b> and holds up the code. The other taps <b>Join channel</b>, scans it, and holds up the reply.</p>
+          <p class="tip">The first phone keeps its camera on behind its own code, so there is nothing to press in between &mdash; just turn it towards the reply and it links itself.</p>
           <p class="tip">Turn both screens up bright. If a camera will not cooperate, open "Use text" under the code and paste it across instead.</p>
         </li>
 
@@ -217,6 +218,13 @@
       <p class="step" id="codeStep">STEP 1 OF 2</p>
       <p class="prose" id="codeHint">Let the other phone scan this.</p>
       <div class="qr-wrap"><canvas id="qrCanvas"></canvas></div>
+
+      <div class="watching" id="watching" hidden>
+        <div class="watch-cam"><video id="codeCam" playsinline muted></video></div>
+        <p class="watch-text">Camera is already on. When their code appears, just
+           turn this phone towards it &mdash; nothing to press.</p>
+      </div>
+
       <div class="btn-row">
         <button class="btn primary" id="btnNext">Now scan their code</button>
       </div>
