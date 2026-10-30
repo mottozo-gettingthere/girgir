@@ -97,6 +97,38 @@ Each phone picks its own mode; they do not have to match.
 | **Latch** | Tap to go live, tap to stop | Either |
 | **Hold** | Live only while pressed | Loudspeaker |
 
+### Earphones
+
+Worth more to this app than any accessory. On a loudspeaker the microphone and
+the speaker share the same air, which is why OPEN mode needs half duplex to
+duck the other person while you talk. Put the sound in your ears and that
+problem is gone: nothing to duck, no feedback, and a genuinely open line both
+of you can talk over at once.
+
+The talk mode is never sent to the other phone, so **one pair between the two
+of you works**. Whoever is wearing them runs OPEN and is hands free; the other
+stays on HOLD with the phone's speaker, and neither side cares what the other
+chose.
+
+**The button on the cable is the talk key.** A headset button arrives as a
+media key, and the app claims those: one click toggles transmit, and on
+headsets that send them, two clicks ping and three change the voice. Which
+click does what varies by model, and some gestures are reserved by the phone
+itself, so treat the second and third as a bonus rather than a promise.
+
+The **Earphones** switch in settings turns off echo cancelling and automatic
+gain. Both exist to keep a loudspeaker out of a microphone and have no work to
+do once the sound is in your ears, where they only cost clarity. Noise
+suppression stays on, since it is doing something else. Not every browser will
+change this on a live microphone, so the app reads the setting back afterwards
+and tells you if it was refused.
+
+It also lets **LATCH keep transmitting with the screen off**, which is the
+point of using the cable at all, and it keeps the media session claiming to
+play so Android does not freeze the page in your pocket. **HOLD still cuts out
+whenever the app leaves the screen** — a finger that cannot be seen is not a
+finger that is still pressing.
+
 ### Voices
 
 The face beside the talk button disguises how you sound **to the other
@@ -138,7 +170,8 @@ with a muted microphone.
 The gear in the header opens a panel over the channel — the talk button stays
 one tap away, and nothing is lost by opening it mid-call. Tap the backdrop,
 the cross or Escape to close it. Everything in it starts in a sensible state,
-so you can ignore it entirely.
+so you can ignore it entirely — apart from **Earphones**, which is off until
+you say otherwise, because the app cannot tell what you are wearing.
 
 - **NAME** — what the other phone calls you. It replaces `THEM` on their
   screen and `YOU` becomes `<your name> (me)` on yours. Leave it empty and the

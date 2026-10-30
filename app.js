@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 14;
+const APP_VERSION = 15;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -55,6 +55,7 @@ const ui = {
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
+  togEars: $('togEars'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
 
@@ -72,6 +73,7 @@ let micDest = null, voice = 'off', voiceNodes = [];
 let voiceTapTimer = 0, lastVoiceTap = 0, pingTaps = [];
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
+let handsFree = false;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
 let scanning = false, scanStream = null, jsqrLoad = null;
 let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
@@ -117,7 +119,7 @@ function load() {
 function save() {
   if (!REMEMBER_SETTINGS) return;
   try {
-    localStorage.setItem('girgir', JSON.stringify({ mode, halfDuplex, rogerBeep, volume }));
+    localStorage.setItem('girgir', JSON.stringify({ mode, halfDuplex, rogerBeep, volume, handsFree }));
   } catch (e) { /* storage unavailable */ }
 }
 
@@ -718,13 +720,21 @@ function setLive(on) {
   syncDuck();
   sendCtl({ t: 'mic', live: on });
   if (on) buzz(12);
-  setSessionState(on || mode === 'open');
+  /* On earphones the phone is going in a pocket, so the session has to keep
+     claiming it is playing even between turns or Android will freeze it. */
+  setSessionState(on || mode === 'open' || handsFree);
   updateTalk();
   updateStatus();
 }
 
 function releaseHold() {
-  if (mode !== 'open') setLive(false);
+  /* OPEN is continuous by definition. On earphones the gate is driven from
+     the cable, and the screen going dark is exactly when you still want that
+     to work - but only for LATCH. HOLD keeps cutting out whenever the app
+     leaves the screen, because a held finger cannot be verified from here. */
+  if (mode === 'open') return;
+  if (handsFree && mode === 'latch') return;
+  setLive(false);
 }
 
 function setMode(m) {
@@ -934,9 +944,12 @@ function showNet(a, b) {
   const pa = a.split('.'), pb = b.split('.');
   const sameLan = pa.length === 4 && pb.length === 4 &&
     pa[0] === pb[0] && pa[1] === pb[1] && pa[2] === pb[2];
+  /* The subnet is as close to a network name as a browser can get, so when
+     the two do not match it is worth saying so rather than leaving two
+     addresses to be compared by eye. */
   ui.vNet.textContent = sameLan
     ? pa.slice(0, 3).join('.') + '.x  \u00b7  ' + pa[3] + ' \u25b8 ' + pb[3]
-    : a + ' \u25b8 ' + b;
+    : 'not the same network  \u00b7  ' + a + ' \u25b8 ' + b;
   ui.vNet.classList.toggle('warn', !sameLan);
 }
 
@@ -987,13 +1000,66 @@ function initMediaSession() {
       artist: 'Girgir',
       album: 'Offline'
     });
-    navigator.mediaSession.setActionHandler('play', () => {
-      if (mode === 'open') { openMuted = false; setLive(true); updateTalk(); }
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      if (mode === 'open') { openMuted = true; setLive(false); updateTalk(); }
-    });
+    navigator.mediaSession.setActionHandler('play', () => headsetTalk());
+    navigator.mediaSession.setActionHandler('pause', () => headsetTalk());
+    try {
+      navigator.mediaSession.setActionHandler('nexttrack', () => sendPing(0));
+      navigator.mediaSession.setActionHandler('previoustrack', () => cycleVoice());
+    } catch (e) { /* these two are optional */ }
   } catch (e) { /* older or partial implementation */ }
+}
+
+/* The button on a headset arrives as a media key: one click is play or pause,
+   two and three clicks are usually next and previous track.
+
+   Which of play or pause a single click sends depends on what the session
+   says is happening - and this session claims to be playing the whole time it
+   is linked, because that is what stops Android freezing the page. So both
+   are treated as the same thing, a toggle, and the gate itself is the only
+   state that decides. There is no key-up event in any of it either, so a
+   button cannot hold a gate open the way a finger can: in HOLD it latches.
+
+   The one expression covers all three modes, because OPEN reads as not live
+   while it is muted. */
+function headsetTalk() {
+  const on = !live;
+  if (mode === 'open') openMuted = !on;
+  setLive(on);
+  updateTalk();
+  buzz(on ? 18 : 10);
+}
+
+/* Echo cancellation is there to subtract this phone's own loudspeaker out of
+   its own microphone. On earphones there is nothing to subtract, so it only
+   costs clarity, and so does automatic gain riding the level up and down.
+   Noise suppression stays on - that one is doing a different job.
+
+   Not every browser will change this on a live track, so the result is read
+   back and reported rather than assumed. */
+async function setEars(on) {
+  handsFree = on;
+  ui.togEars.setAttribute('aria-pressed', String(on));
+  save();
+  if (!micRawTrack || !micRawTrack.applyConstraints) {
+    toast(on ? 'Earphones on' : 'Earphones off', 2600);
+    return;
+  }
+  try {
+    await micRawTrack.applyConstraints({
+      echoCancellation: !on,
+      autoGainControl: !on,
+      noiseSuppression: true
+    });
+    const got = micRawTrack.getSettings ? micRawTrack.getSettings() : {};
+    if (on && got.echoCancellation === true) {
+      toast('Earphones on. This browser keeps echo cancelling anyway.', 5000);
+    } else {
+      toast(on ? 'Earphones on \u2014 clearer mic, and LATCH survives your pocket'
+               : 'Earphones off \u2014 echo cancelling back on', 4000);
+    }
+  } catch (e) {
+    toast(on ? 'Earphones on. The mic settings could not be changed.' : 'Earphones off', 4000);
+  }
 }
 
 function setSessionState(playing) {
@@ -2004,7 +2070,7 @@ ui.togHalf.onclick = () => {
 /* A cached index.html from an older version can be missing a control that the
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
-['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
+['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal', 'togEars',
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
@@ -2077,6 +2143,8 @@ ui.togRoger.onclick = () => {
   save();
 };
 
+ui.togEars.onclick = () => { setEars(!handsFree); };
+
 /* Safety releases. */
 window.addEventListener('blur', releaseHold);
 document.addEventListener('visibilitychange', () => {
@@ -2108,6 +2176,7 @@ initResume();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
+ui.togEars.setAttribute('aria-pressed', String(handsFree));
 updateTalk();
 setPill('idle', 'IDLE');
 initBattery();
