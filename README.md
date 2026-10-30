@@ -118,7 +118,7 @@ Three strengths, so the loudest one cannot go off by accident:
 |---|---|---|
 | **Ping** | Tap | One tone, a short buzz |
 | **Urgent** | Hold half a second | Rising triple, longer buzz |
-| **Alarm** | Hold ten seconds, **or** ten quick jabs | Five rising pairs over about 1.3s, a long buzz pattern, and a flashing screen |
+| **Alarm** | Hold five seconds, **or** ten quick jabs | Five rising pairs over about 1.3s, a long buzz pattern, and a flashing screen |
 
 The ping button fills with red while an alarm is arming, so a long press is
 never a surprise. The alarm also skips the rate limit the other two obey.
@@ -208,6 +208,14 @@ in between: the phone that created the channel **keeps its camera running
 behind its own code**, so once the reply appears it links itself. Nobody
 presses anything between the scans.
 
+Hosting is also symmetric, which removes the other decision. A phone showing a
+code is watching for one at the same time, so **both of you can tap Create
+channel** and simply point the phones at each other. Each sees the other's
+offer, and the rule for who gives way needs no exchange: the lower-sorting
+code answers, the other stays host. The codes carry random ICE credentials, so
+they cannot tie. **Join channel** is still there for when one of you would
+rather scan deliberately.
+
 It would be neater for the first phone to open its camera the moment the other
 one scans, and that is not possible. Until the reply arrives there is no
 channel, and the first phone's ICE agent cannot even validate the other's
@@ -237,18 +245,31 @@ opened the channel, your phone asks the other one to do the re-offer.
 
 ### One of you actually quit the app
 
-Now there is nothing to renegotiate over, and this is the part that cannot be
-automated. **A pairing code cannot be saved and reused.** It carries ICE
-credentials and a DTLS fingerprint belonging to one live connection object,
-plus port numbers that stop existing when the page closes. Replaying an old
-code points at an endpoint that is gone, with keys that no longer match.
+Now there is nothing to renegotiate over. **A pairing code cannot be saved and
+reused** — it carries ICE credentials and a DTLS fingerprint belonging to one
+live connection object, plus port numbers that stop existing when the page
+closes. Replaying an old code points at an endpoint that is gone, with keys
+that no longer match, and nothing can be cached to avoid that, because the
+information does not survive the app closing. Something fresh has to cross the
+gap.
 
-Nothing can be cached to avoid this, because the information does not survive
-the app closing on either phone. Pairing again means the usual two scans:
+So the app makes that crossing as small as it can be, rather than asking you
+to work out a procedure. Four seconds after the other phone goes away, this
+one **goes on standby by itself**: a fresh code on screen, camera watching
+behind it, pill reading `STANDBY`. The returning phone opens the app and taps
+**Return to channel**, which does the same thing. Then you point them at
+each other and they link up — no roles, no steps, nothing to press in between.
 
-1. Whoever still has it open taps **Relink**. A fresh code appears.
-2. The other person opens the app, taps **Join channel**, and scans it.
-3. They show the reply code back to be scanned.
+Neither phone has to be the one that went away, and it does not matter which
+of you reopens first; whoever is ready waits for the other. **Stand by now**
+on the dropped-channel bar skips the four-second wait, and **Relink** does the
+same thing when the link is already gone.
+
+What this cannot do is link two phones that are merely on the same Wi-Fi
+without ever facing each other. A browser cannot broadcast on a LAN, cannot
+answer an mDNS query and cannot listen on a port, so with no server there is
+nothing for one app to discover another with. The cameras are the whole
+transport, and this is the shortest ritual they allow.
 
 ## Versions and updating
 

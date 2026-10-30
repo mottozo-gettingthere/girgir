@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 10;
+const APP_VERSION = 11;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -64,6 +64,7 @@ let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
+let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let route = 'earpiece';
 let micDest = null, voice = 'off', voiceNodes = [];
 let voiceTapTimer = 0, lastVoiceTap = 0, pingTaps = [];
@@ -759,6 +760,7 @@ function wireChannel(channel) {
   };
   dc.onclose = () => stopHeartbeat();
   dc.onmessage = ev => {
+    lastHeard = Date.now();
     let m;
     try { m = JSON.parse(ev.data); } catch (e) { return; }
     if (m.t === 'mic') {
@@ -792,9 +794,17 @@ function wireChannel(channel) {
   };
 }
 
+/* A page that closes without saying goodbye leaves the data channel looking
+   open from this side until it times out, which can take minutes. Silence is
+   the reliable signal instead: nothing at all against a four-second heartbeat
+   means the other app is gone, not merely quiet. */
+const PEER_GONE_MS = 12000;
+
 function startHeartbeat() {
   stopHeartbeat();
+  lastHeard = Date.now();
   hbTimer = setInterval(() => {
+    if (lastHeard && Date.now() - lastHeard > PEER_GONE_MS) { peerGone(); return; }
     sendCtl({ t: 'hb', ts: performance.now() });
     if (myBattery) sendCtl({ t: 'stat', batt: myBattery });
   }, 4000);
@@ -908,8 +918,16 @@ async function relink() {
     return;
   }
 
-  toast('Pairing again. Have them tap Join channel.', 8000);
+  await standby();
+}
+
+/* Drops everything that belonged to one session while keeping the microphone,
+   so a fresh offer can be built on the spot. */
+function teardownPeer() {
   stopHeartbeat();
+  lastHeard = 0;
+  clearTimeout(recoverTimer);
+  recovering = false;
   if (dc) { try { dc.close(); } catch (e) {} dc = null; }
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
   remoteStream = null;
@@ -920,7 +938,6 @@ async function relink() {
   ui.vBattThem.textContent = '\u2014';
   ui.vNet.textContent = '\u2014';
   ui.meterThem.style.width = '0%';
-  await createChannel();
 }
 
 /* Android keeps a page alive in the background when it presents itself as an
@@ -1030,6 +1047,20 @@ function settlePill() {
   if (pc && pc.connectionState === 'connected') setPill('linked', 'LINKED');
 }
 
+/* The other app is gone for good, so there is nothing to renegotiate and no
+   point waiting: this phone goes on standby by itself. */
+function peerGone() {
+  stopHeartbeat();
+  lastHeard = 0;
+  if (ui.views.live.hidden && ui.views.code.hidden) return;
+  ui.dropText.textContent = (peerName || 'They') +
+    ' left the channel. Going on standby \u2014 point the two phones at each other.';
+  ui.dropBar.hidden = false;
+  setPill('lost', 'DROPPED');
+  clearTimeout(standbyTimer);
+  standbyTimer = setTimeout(() => { standby().catch(() => {}); }, 2500);
+}
+
 function scheduleRecovery() {
   clearTimeout(recoverTimer);
   recoverTimer = setTimeout(attemptRecovery, 2000);
@@ -1040,11 +1071,16 @@ async function attemptRecovery(force) {
   if (!force && pc.connectionState === 'connected') return;
 
   if (!dc || dc.readyState !== 'open') {
-    /* Nothing left to renegotiate over, so the only way back is a fresh
-       pairing - offered here rather than left to be worked out. */
+    /* Nothing left to renegotiate over. Rather than asking for a decision,
+       this phone goes on standby by itself - see standby() for why that is
+       the whole procedure from here. */
     ui.dropText.textContent = (peerName || 'They') +
-      ' left the channel. Show a code and have them open the app and tap Join.';
+      ' left the channel. Going on standby \u2014 point the two phones at each other.';
     ui.dropBar.hidden = false;
+    clearTimeout(standbyTimer);
+    standbyTimer = setTimeout(() => {
+      if (!ui.views.live.hidden) standby().catch(() => {});
+    }, 4000);
     return;
   }
   /* Only one side may re-offer, or the two offers collide. */
@@ -1056,6 +1092,11 @@ async function attemptRecovery(force) {
     await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
     await gatheringDone();
     sendCtl({ t: 'reoffer', sdp: pc.localDescription.sdp });
+    /* If no reply comes back the flag would latch and block every later
+       attempt, including the one that notices the peer has gone. */
+    setTimeout(() => {
+      if (recovering && pc && pc.connectionState !== 'connected') recovering = false;
+    }, 8000);
   } catch (e) {
     recovering = false;
     toast('Could not relink by itself - tap Relink', 6000);
@@ -1196,6 +1237,7 @@ function newPeer() {
     const s = pc.connectionState;
     if (s === 'connected') {
       clearTimeout(recoverTimer);
+      clearTimeout(standbyTimer);
       recovering = false;
       ui.dropBar.hidden = true;
       setPill('linked', 'LINKED');
@@ -1246,14 +1288,19 @@ function gatheringDone(timeout = 2500) {
 
 /* ---------------- pairing flow ---------------- */
 
-async function createChannel() {
+/* Hosting is symmetric: this phone shows an offer and watches for a code at
+   the same time, so both ends can do exactly this and still link up. That is
+   what makes standby work - neither phone has to be told which one is
+   hosting, and nothing has to be pressed in between. */
+async function host(step, hint) {
   try {
     await ensureMic();
   } catch (e) {
     toast('Microphone blocked. Allow it in site settings.', 5000);
     return;
   }
-  setPill('pairing', 'PAIRING');
+  teardownPeer();
+  setPill('pairing', step === 'STANDBY' ? 'STANDBY' : 'PAIRING');
   amOfferer = true;
   newPeer();
   wireChannel(pc.createDataChannel('ctl', { ordered: true }));
@@ -1261,12 +1308,41 @@ async function createChannel() {
   preferOpus();
   await pc.setLocalDescription(await pc.createOffer({ offerToReceiveAudio: true }));
   await gatheringDone();
-  const code = await packDesc('O', pc.localDescription.sdp);
-  showCode(code, 'STEP 1 OF 2',
-    'Let the other phone scan this. Then turn this phone towards their reply.',
-    'Scan full screen instead',
-    () => openScanner('STEP 2 OF 2', 'Scan the code their phone shows.', takeAnswer),
-    takeAnswer);
+  standbyCode = await packDesc('O', pc.localDescription.sdp);
+  showCode(standbyCode, step, hint, 'Scan full screen instead',
+    () => openScanner(step, 'Scan the code the other phone shows.', takeStandby),
+    takeStandby, standbyFilter);
+}
+
+function createChannel() {
+  return host('STEP 1 OF 2',
+    'Let the other phone scan this \u2014 or just point the two phones at each other.');
+}
+
+/* A page that has been closed takes its code with it: the ICE credentials and
+   the DTLS fingerprint died with it, so something fresh has to cross the gap
+   and no stored code can stand in. Standby makes that crossing as small as it
+   can be. Both ends show a code and both watch through the camera, so you
+   point the phones at each other and nothing else happens by hand. */
+function standby() {
+  return host('STANDBY',
+    'Point the two phones at each other. Whichever is ready first waits for the other.');
+}
+
+/* Both phones see the other's offer, so they need the same rule for who gives
+   way, settled with no exchange at all: the lower-sorting code answers. The
+   codes carry random ICE credentials, so they can never tie. */
+function standbyFilter(code) {
+  if (!standbyCode || code === standbyCode) return false;
+  if (code.charAt(2) === 'A') return true;
+  return code > standbyCode;
+}
+
+async function takeStandby(code) {
+  if (String(code).charAt(2) === 'A') return takeAnswer(code);
+  /* Giving way: drop this phone's own offer and answer theirs instead. */
+  teardownPeer();
+  return takeOffer(code);
 }
 
 async function joinChannel() {
@@ -1308,7 +1384,7 @@ async function takeAnswer(code) {
   await pc.setRemoteDescription({ type: 'answer', sdp });
 }
 
-function showCode(code, step, hint, nextLabel, onNext, watchHandler) {
+function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter) {
   ui.codeStep.textContent = step;
   ui.codeHint.textContent = hint;
   ui.codeText.value = code;
@@ -1320,7 +1396,7 @@ function showCode(code, step, hint, nextLabel, onNext, watchHandler) {
     try { drawQR(code, ui.qrCanvas); }
     catch (e) { toast('Code too long for a QR — use the text option', 5000); }
   });
-  if (watchHandler) watchForAnswer(watchHandler);
+  if (watchHandler) watchForAnswer(watchHandler, watchFilter);
 }
 
 function drawQR(text, canvas) {
@@ -1400,7 +1476,10 @@ async function startCamera(videoEl) {
    freeze scanning. */
 const SCAN_INTERVAL_MS = 100;
 
-function runScanLoop(videoEl, detector, handler) {
+/* A filter lets the loop pass over a code it is not meant to act on - the
+   other phone's offer when this one is staying host - and keep looking
+   instead of stopping on it. */
+function runScanLoop(videoEl, detector, handler, filter) {
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d', { willReadFrequently: true });
   let busy = false;
@@ -1426,7 +1505,7 @@ function runScanLoop(videoEl, detector, handler) {
           const found = jsQR(img.data, sz, sz, { inversionAttempts: 'dontInvert' });
           if (found) text = found.data;
         }
-        if (text && text.startsWith(PROTO)) {
+        if (text && text.startsWith(PROTO) && (!filter || filter(text))) {
           buzz(30);
           consume(text, handler);
           return;
@@ -1443,11 +1522,11 @@ function runScanLoop(videoEl, detector, handler) {
    press anything between the two scans. There is no way to know the other
    phone has scanned - no channel exists until its answer arrives - so the
    camera simply stays open and waits. */
-async function watchForAnswer(handler) {
+async function watchForAnswer(handler, filter) {
   const started = await startCamera(ui.codeCam);
   if (!started.ok) { ui.watching.hidden = true; return; }
   ui.watching.hidden = false;
-  runScanLoop(ui.codeCam, started.detector, handler);
+  runScanLoop(ui.codeCam, started.detector, handler, filter);
 }
 
 async function openScanner(step, hint, handler) {
@@ -1518,14 +1597,13 @@ function initResume() {
   let last = '';
   try { last = localStorage.getItem(LAST_KEY) || ''; } catch (e) {}
   if (last !== 'O' && last !== 'A') return;
-  ui.resumeText.textContent = last === 'O'
-    ? 'You were hosting the last channel. Resume shows a fresh code for them to scan.'
-    : 'You joined the last channel. Resume opens the scanner for their fresh code.';
+  ui.resumeText.textContent =
+    'You were in a channel. Return puts this phone on standby \u2014 point the ' +
+    'two phones at each other and they link up by themselves.';
   ui.resumeBar.hidden = false;
   ui.btnResume.onclick = () => {
     ui.resumeBar.hidden = true;
-    const go = last === 'O' ? createChannel() : joinChannel();
-    go.catch(e => toast(e.message || 'Could not start', 5000));
+    standby().catch(e => toast(e.message || 'Could not start', 5000));
   };
   ui.btnResumeHide.onclick = () => { forgetChannel(); ui.resumeBar.hidden = true; };
 }
@@ -1590,6 +1668,7 @@ function hangUp() {
   setLive(false);
   stopHeartbeat();
   stopScanner();
+  clearTimeout(standbyTimer);
   cancelAnimationFrame(meterRaf);
   if (dc) { try { dc.close(); } catch (e) {} dc = null; }
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
@@ -1702,9 +1781,9 @@ ui.talk.addEventListener('pointerdown', e => {
 });
 
 /* Ping has three strengths: a tap, a half-second hold for the urgent triple,
-   and the alarm - which needs either ten seconds of holding or ten quick jabs,
-   so it cannot be set off by accident. */
-const ALARM_HOLD_MS = 10000;
+   and the alarm - which needs either five seconds of holding or ten quick
+   jabs, so it cannot be set off by accident. */
+const ALARM_HOLD_MS = 5000;
 const ALARM_TAPS = 10;
 const ALARM_TAP_WINDOW = 5000;
 
@@ -1833,7 +1912,8 @@ ui.btnInstallHide.onclick = markInstalled;
 ui.btnUpdate.onclick = () => applyUpdate();
 ui.btnDropPair.onclick = () => {
   ui.dropBar.hidden = true;
-  relink().catch(e => toast(e.message || 'Could not start', 5000));
+  clearTimeout(standbyTimer);
+  standby().catch(e => toast(e.message || 'Could not start', 5000));
 };
 
 ui.btnRelink.onclick = () =>

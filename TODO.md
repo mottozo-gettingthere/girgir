@@ -76,3 +76,56 @@ host introduces it to everyone else.
 
 Three people on a mesh with pairwise QR pairing, which works and is only three
 exchanges. Host-brokered pairing only if four or more is ever actually wanted.
+
+## Joining without scanning, for anyone on the same Wi-Fi
+
+The wish: open the app on the hotspot and be in the channel, no codes, no
+cameras. Worth writing down why that is not a small feature, and what the real
+routes to it are.
+
+### Why a browser cannot find another browser on a LAN
+
+A WebRTC connection needs an offer and an answer to cross before anything
+else can happen. A page in a browser has no way to carry them across a local
+network by itself:
+
+- No UDP. No broadcast, no multicast, so the usual "shout on 255.255.255.255
+  and see who replies" is unavailable.
+- No mDNS queries. Browsers use mDNS internally to hide local IPs in ICE
+  candidates, but expose no API to ask who else is on the network.
+- No listening. A page cannot bind a port or accept an inbound connection, so
+  there is nothing for another phone to connect *to*.
+- Subnet probing with `fetch` is possible and pointless — 254 requests that
+  find nothing, because no page can answer them.
+
+So two installed copies of this app on one Wi-Fi genuinely cannot see each
+other. The cameras are the transport, and standby — both ends showing a code
+and watching at once — is the shortest ritual that allows.
+
+### What would actually work
+
+**1. A rendezvous already on the network.** Something that can listen, holding
+offers and answers for a few seconds while the two phones collect each other's.
+This is thirty lines on top of `devserve.py`: `POST /rv` to leave a
+description, `GET /rv` to collect the other one.
+
+The catch is the origin. It only works for phones that loaded the app *from*
+that computer, because the installed copy from GitHub Pages is a different
+origin served over HTTPS, and an HTTPS page may not call an HTTP endpoint.
+That means either the laptop serves the app over HTTPS with a certificate the
+phones trust, or this is a second, LAN-only install — which is fine for use at
+home, and useless in a car park.
+
+**2. A native wrapper.** Capacitor or equivalent on the phones, which can bind
+a UDP socket and do real mDNS discovery, then hand the descriptions to the same
+WebRTC code. This is the only route to zero-touch joining with nothing else on
+the network, and it is the same escape hatch already needed for background
+audio on iOS. If that wrapper ever gets built, do both at once.
+
+### If standby meets more than two phones
+
+The give-way rule — lower code answers — is written for two. With three in
+standby at once the lowest gives way to both others, and both answers race for
+the one connection object the winner has. Whoever lands first wins and the
+other is orphaned with no error. Harmless today because only two phones are
+ever in a channel; revisit alongside the mesh work above.
