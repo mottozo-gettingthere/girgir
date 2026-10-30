@@ -209,7 +209,10 @@ body {
 
 .meter-label {
   font-size: 11px; letter-spacing: 0.16em; color: var(--dim);
-  width: 46px; flex: none;
+  /* A name has to fit here too, so this grows a little rather than being
+     pinned to the width of the word THEM. */
+  min-width: 46px; max-width: 108px; flex: none;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .track {
@@ -501,3 +504,16 @@ body {
 /* Dismiss, for the one case nothing can detect: iOS reopened in a browser
    tab after the app is already on the home screen. */
 .install .icon-btn { flex: none; width: 28px; height: 28px; font-size: 14px; }
+
+
+/* Name field, same row shape as the sliders beside it. */
+.vol input[type="text"] {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 13px;
+  background: var(--bg); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.vol input[type="text"]::placeholder { color: var(--dim); }
+.vol input[type="text"]:focus { outline: none; border-color: var(--rx); }

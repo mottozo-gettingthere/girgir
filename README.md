@@ -10,10 +10,10 @@ It keeps no records: no call history, no recordings, no logs, and no settings
 carried between launches. Anything an older version left on the phone is wiped
 at startup.
 
-Exactly one value survives a launch — a boolean noting the app has been
-installed, so the install hint stops appearing. iOS gives a page no way to
-detect that for itself. Nothing else persists, and **Clear cache** removes
-that too.
+Two values survive a launch: a boolean noting the app has been installed, so
+the install hint stops appearing, and the name you chose for yourself. Nothing
+else persists — no call history, no peer names, no settings — and **Clear
+cache** removes both.
 
 ## What you need
 
@@ -111,6 +111,11 @@ one tap away, and nothing is lost by opening it mid-call. Tap the backdrop,
 the cross or Escape to close it. Everything in it starts in a sensible state,
 so you can ignore it entirely.
 
+- **NAME** — what the other phone calls you. It replaces `THEM` on their
+  screen and `YOU` becomes `<your name> (me)` on yours. Leave it empty and the
+  plain labels are used. It is sent over the data channel when you link and
+  whenever you change it, capped at 12 characters, and it is the only thing
+  either phone learns about the other.
 - **MIC** — how loudly you are sent, 0 to 200%. Past 100 lifts a quiet
   headset; too far and you distort. The YOU meter shows the level after this
   is applied, so watch it while you talk.

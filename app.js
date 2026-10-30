@@ -11,6 +11,8 @@ const $ = id => document.getElementById(id);
    mode, toggles and volume. */
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
+const NAME_KEY = 'girgir-name';
+const KEEP_KEYS = [INSTALLED_KEY, NAME_KEY];
 
 const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
@@ -37,7 +39,8 @@ const ui = {
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
-  btnInstallHide: $('btnInstallHide'),
+  btnInstallHide: $('btnInstallHide'), nameIn: $('nameIn'),
+  labelYou: $('labelYou'), labelThem: $('labelThem'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
@@ -47,6 +50,7 @@ const ui = {
 let pc = null, dc = null;
 let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
+let myName = '', peerName = '';
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
@@ -66,9 +70,9 @@ function purgeStoredData() {
          tell it has already been added to the home screen, so without this
          the install hint would nag forever in a Safari tab. One boolean -
          no call data of any kind survives a launch. */
-      const kept = localStorage.getItem(INSTALLED_KEY);
+      const kept = KEEP_KEYS.map(k => [k, localStorage.getItem(k)]);
       localStorage.clear();
-      if (kept !== null) localStorage.setItem(INSTALLED_KEY, kept);
+      kept.forEach(([k, v]) => { if (v !== null) localStorage.setItem(k, v); });
     }
     sessionStorage.clear();
   } catch (e) { /* storage blocked */ }
@@ -468,6 +472,7 @@ function wireChannel(channel) {
   dc.onopen = () => {
     setPill('linked', 'LINKED');
     sendCtl({ t: 'mic', live });
+    sendCtl({ t: 'name', name: myName });
     if (myBattery) sendCtl({ t: 'stat', batt: myBattery });
     startHeartbeat();
   };
@@ -484,6 +489,7 @@ function wireChannel(channel) {
       updateStatus();
     }
     else if (m.t === 'ping') { receivePing(!!m.urgent); sendCtl({ t: 'ack', id: m.id }); }
+    else if (m.t === 'name') { peerName = cleanName(m.name); updateNames(); }
     else if (m.t === 'ack') { toast('Ping delivered'); }
     else if (m.t === 'hb') { sendCtl({ t: 'hbr', ts: m.ts }); }
     else if (m.t === 'hbr') { rtt = Math.round(performance.now() - m.ts); }
@@ -676,6 +682,40 @@ function initInstall() {
       'After that it opens from your home screen and needs no internet.';
     ui.installBar.hidden = false;
   }
+}
+
+/* The peer's name arrives over the data channel, so it is untrusted input:
+   capped, stripped of control characters, and only ever written as text. */
+function cleanName(v) {
+  return String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+    .trim()
+    .slice(0, 12);
+}
+
+function updateNames() {
+  ui.labelYou.textContent = myName ? myName + ' (me)' : 'YOU';
+  ui.labelThem.textContent = peerName || 'THEM';
+  ui.labelYou.title = myName ? myName + ' - you' : 'You';
+  ui.labelThem.title = peerName ? peerName + ' - the other phone' : 'The other phone';
+}
+
+function setMyName(v, announce) {
+  myName = cleanName(v);
+  try {
+    if (myName) localStorage.setItem(NAME_KEY, myName);
+    else localStorage.removeItem(NAME_KEY);
+  } catch (e) { /* storage blocked */ }
+  updateNames();
+  if (announce) sendCtl({ t: 'name', name: myName });
+}
+
+function loadName() {
+  let stored = '';
+  try { stored = localStorage.getItem(NAME_KEY) || ''; } catch (e) {}
+  myName = cleanName(stored);
+  ui.nameIn.value = myName;
+  updateNames();
 }
 
 function receivePing(urgent) {
@@ -1043,6 +1083,8 @@ function hangUp() {
   remoteStream = null;
   remoteAnalyser = null;
   remoteLive = false;
+  peerName = '';
+  updateNames();
   lastLost = lastRecv = null;
   ui.remoteAudio.srcObject = null;
   ui.codeText.value = '';
@@ -1086,6 +1128,7 @@ async function clearData() {
   } catch (e) { /* no cache storage */ }
   try { localStorage.removeItem('girgir'); } catch (e) {}
   try { localStorage.removeItem(INSTALLED_KEY); } catch (e) {}
+  try { localStorage.removeItem(NAME_KEY); } catch (e) {}
   try {
     if (navigator.serviceWorker) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -1168,7 +1211,8 @@ ui.togHalf.onclick = () => {
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
-  'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide'].forEach(k => {
+  'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
+  'nameIn', 'labelYou', 'labelThem'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1182,6 +1226,9 @@ ui.sheet.addEventListener('click', e => { if (e.target === ui.sheet) openSheet(f
 document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
 
 ui.micLvl.addEventListener('input', () => setMicGain(+ui.micLvl.value));
+
+ui.nameIn.addEventListener('input', () => setMyName(ui.nameIn.value, true));
+ui.nameIn.addEventListener('blur', () => { ui.nameIn.value = myName; });
 
 ui.togAwake.onclick = () => {
   keepAwake = !keepAwake;
@@ -1246,6 +1293,7 @@ load();
 document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);
+loadName();
 initInstall();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
