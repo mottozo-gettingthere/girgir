@@ -29,7 +29,7 @@ gh repo create girgir --public --source=. --push
 gh api -X POST repos/:owner/girgir/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'
 ```
 
-The site appears at `https://<your-user>.github.io/girgir/` within a minute
+The site appears at `https://mottozo-gettingthere.github.io/girgir/` within a minute
 or two. Any later change needs a `git push` and a reload on both phones.
 
 To try it on your Mac first: `python3 -m http.server 8777` and open
@@ -50,7 +50,7 @@ microphone and camera when asked. Now it works with no network.
 
 ### 3. Check each phone
 
-Open `diag.html` on both phones — `https://<your-user>.github.io/girgir/diag.html`.
+Open `diag.html` on both phones — `https://mottozo-gettingthere.github.io/girgir/diag.html`.
 It reports exactly what that phone supports: microphone, WebRTC, QR decoding,
 whether software volume works, where audio comes out by default, vibration and
 battery. The three buttons at the bottom test the microphone, the buzz and the
