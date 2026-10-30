@@ -462,6 +462,89 @@ const VOICES = [
   { id: 'wobble',  face: '\u{1F974}', name: 'wobble'   }
 ];
 
+/* Web Audio has no pitch shifter, so here is one: two delay lines whose delay
+   is swept linearly and crossfaded into each other. Sweeping a delay changes
+   playback rate, and therefore pitch; the crossfade hides the jump when each
+   sweep restarts. Granular, so it sounds a bit grainy - which for a helium
+   voice is no loss at all. */
+const SHIFT_WINDOW = 0.100;
+const SHIFT_FADE = 0.050;
+
+function fadeBuffer(ctx) {
+  const rate = ctx.sampleRate;
+  const len1 = Math.floor(SHIFT_WINDOW * rate);
+  const len2 = Math.floor((SHIFT_WINDOW - 2 * SHIFT_FADE) * rate);
+  const buf = ctx.createBuffer(1, len1 + len2, rate);
+  const p = buf.getChannelData(0);
+  const fade = SHIFT_FADE * rate;
+  const upTo = len1 - fade;
+  for (let i = 0; i < len1; i++) {
+    if (i < fade) p[i] = Math.sqrt(i / fade);
+    else if (i >= upTo) p[i] = Math.sqrt(1 - (i - upTo) / fade);
+    else p[i] = 1;
+  }
+  return buf;
+}
+
+function rampBuffer(ctx, up) {
+  const rate = ctx.sampleRate;
+  const len1 = Math.floor(SHIFT_WINDOW * rate);
+  const len2 = Math.floor((SHIFT_WINDOW - 2 * SHIFT_FADE) * rate);
+  const buf = ctx.createBuffer(1, len1 + len2, rate);
+  const p = buf.getChannelData(0);
+  for (let i = 0; i < len1; i++) p[i] = up ? (len1 - i) / len1 : i / len1;
+  return buf;
+}
+
+/* amount is how far the delay is swept: bigger means a bigger shift. Positive
+   raises the pitch, negative lowers it. */
+function makeShifter(ctx, amount, nodes) {
+  const input = ctx.createGain();
+  const output = ctx.createGain();
+  const d1 = ctx.createDelay(1);
+  const d2 = ctx.createDelay(1);
+  const m1 = ctx.createGain();
+  const m2 = ctx.createGain();
+
+  const fade = fadeBuffer(ctx);
+  const ramp = rampBuffer(ctx, amount > 0);
+  const srcs = [];
+  const mk = (buffer, target) => {
+    const n = ctx.createBufferSource();
+    n.buffer = buffer;
+    n.loop = true;
+    n.connect(target);
+    srcs.push(n);
+    return n;
+  };
+
+  const sweep1 = ctx.createGain();
+  const sweep2 = ctx.createGain();
+  sweep1.gain.value = SHIFT_WINDOW * Math.abs(amount);
+  sweep2.gain.value = SHIFT_WINDOW * Math.abs(amount);
+  sweep1.connect(d1.delayTime);
+  sweep2.connect(d2.delayTime);
+
+  const r1 = mk(ramp, sweep1);
+  const r2 = mk(ramp, sweep2);
+  const f1 = mk(fade, m1.gain);
+  const f2 = mk(fade, m2.gain);
+
+  m1.gain.value = 0;
+  m2.gain.value = 0;
+  input.connect(d1); d1.connect(m1); m1.connect(output);
+  input.connect(d2); d2.connect(m2); m2.connect(output);
+
+  const t = ctx.currentTime + 0.05;
+  const t2 = t + SHIFT_WINDOW - SHIFT_FADE;
+  r1.start(t); f1.start(t);
+  r2.start(t2); f2.start(t2);
+
+  nodes.push(d1, d2, m1, m2, sweep1, sweep2);
+  srcs.forEach(n => nodes.push(n));
+  return { input: input, output: output, sweeps: [sweep1, sweep2] };
+}
+
 function distortionCurve(amount) {
   const n = 1024, curve = new Float32Array(n);
   for (let i = 0; i < n; i++) {
