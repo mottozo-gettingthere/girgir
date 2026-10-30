@@ -51,6 +51,7 @@ let pc = null, dc = null;
 let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
+let amOfferer = false, recoverTimer = 0, recovering = false;
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
@@ -490,6 +491,12 @@ function wireChannel(channel) {
     }
     else if (m.t === 'ping') { receivePing(!!m.urgent); sendCtl({ t: 'ack', id: m.id }); }
     else if (m.t === 'name') { peerName = cleanName(m.name); updateNames(); }
+    else if (m.t === 'reoffer') { takeReoffer(m.sdp); }
+    else if (m.t === 'ask-reoffer') { attemptRecovery(true); }
+    else if (m.t === 'reanswer') { takeReanswer(m.sdp); }
+    else if (m.t === 'bye') {
+      toast((peerName || 'They') + ' are re-pairing - tap Join channel', 8000);
+    }
     else if (m.t === 'ack') { toast('Ping delivered'); }
     else if (m.t === 'hb') { sendCtl({ t: 'hbr', ts: m.ts }); }
     else if (m.t === 'hbr') { rtt = Math.round(performance.now() - m.ts); }
@@ -604,10 +611,20 @@ function showNet(a, b) {
   ui.vNet.classList.toggle('warn', !sameLan);
 }
 
-/* A code carries one session's ICE credentials and DTLS fingerprint, so it
-   cannot be reused to reconnect. This skips the walk back out to setup and
-   mints a fresh one on the spot. */
+/* Tries the cheap repair first. While the control channel is alive the two
+   sides renegotiate over it and nobody scans anything. Only a genuinely dead
+   channel forces a fresh pairing, and a code cannot be reused for that - it
+   carries one session's ICE credentials and DTLS fingerprint. */
 async function relink() {
+  if (pc && dc && dc.readyState === 'open') {
+    setPill('pairing', 'RELINKING');
+    recovering = false;
+    if (amOfferer) await attemptRecovery(true);
+    else sendCtl({ t: 'ask-reoffer' });
+    return;
+  }
+
+  toast('Pairing again. Have them tap Join channel.', 8000);
   stopHeartbeat();
   if (dc) { try { dc.close(); } catch (e) {} dc = null; }
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
@@ -718,6 +735,69 @@ function loadName() {
   updateNames();
 }
 
+/* A dropped link usually means the network moved, not that anyone left. While
+   the control channel is still up the two sides can renegotiate over it with
+   no scanning at all - that is what an ICE restart is for. Only once that
+   channel is gone does pairing have to start from scratch. */
+/* A restart forced while the link is still up never changes connectionState,
+   so onconnectionstatechange will not fire and nothing would clear the
+   RELINKING pill. Settle it by hand once renegotiation finishes. */
+function settlePill() {
+  if (pc && pc.connectionState === 'connected') setPill('linked', 'LINKED');
+}
+
+function scheduleRecovery() {
+  clearTimeout(recoverTimer);
+  recoverTimer = setTimeout(attemptRecovery, 2000);
+}
+
+async function attemptRecovery(force) {
+  if (!pc || recovering) return;
+  if (!force && pc.connectionState === 'connected') return;
+
+  if (!dc || dc.readyState !== 'open') {
+    toast('Link lost. Tap Relink, and have them tap Join channel.', 7000);
+    return;
+  }
+  /* Only one side may re-offer, or the two offers collide. */
+  if (!amOfferer) return;
+
+  recovering = true;
+  setPill('pairing', 'RELINKING');
+  try {
+    await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+    await gatheringDone();
+    sendCtl({ t: 'reoffer', sdp: pc.localDescription.sdp });
+  } catch (e) {
+    recovering = false;
+    toast('Could not relink by itself - tap Relink', 6000);
+  }
+}
+
+async function takeReoffer(sdp) {
+  if (!pc) return;
+  recovering = true;
+  setPill('pairing', 'RELINKING');
+  try {
+    await pc.setRemoteDescription({ type: 'offer', sdp: String(sdp) });
+    await pc.setLocalDescription(await pc.createAnswer());
+    await gatheringDone();
+    sendCtl({ t: 'reanswer', sdp: pc.localDescription.sdp });
+  } catch (e) {
+    toast('Could not relink by itself - tap Relink', 6000);
+  }
+  recovering = false;
+  settlePill();
+}
+
+async function takeReanswer(sdp) {
+  if (!pc) return;
+  try { await pc.setRemoteDescription({ type: 'answer', sdp: String(sdp) }); }
+  catch (e) { toast('Could not relink by itself - tap Relink', 6000); }
+  recovering = false;
+  settlePill();
+}
+
 function receivePing(urgent) {
   playPing(urgent);
   buzz(urgent ? [0, 130, 80, 130, 80, 220] : [0, 150]);
@@ -755,13 +835,13 @@ function newPeer() {
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     if (s === 'connected') {
+      clearTimeout(recoverTimer);
+      recovering = false;
       setPill('linked', 'LINKED');
       goLive();
-    } else if (s === 'failed') {
-      setPill('lost', 'LOST');
-      toast('Link lost — tap End, then pair again', 5000);
-    } else if (s === 'disconnected') {
-      setPill('lost', 'DROPPED');
+    } else if (s === 'failed' || s === 'disconnected') {
+      setPill('lost', s === 'failed' ? 'LOST' : 'DROPPED');
+      scheduleRecovery();
     }
   };
   return pc;
@@ -813,6 +893,7 @@ async function createChannel() {
     return;
   }
   setPill('pairing', 'PAIRING');
+  amOfferer = true;
   newPeer();
   wireChannel(pc.createDataChannel('ctl', { ordered: true }));
   micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
@@ -836,6 +917,7 @@ async function joinChannel() {
 }
 
 async function takeOffer(code) {
+  amOfferer = false;
   const { role, sdp } = await unpackDesc(code);
   if (role !== 'O') throw new Error('That is the wrong code — scan the one from "Create channel".');
   newPeer();

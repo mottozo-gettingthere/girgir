@@ -178,14 +178,37 @@ That is deliberate: neither mode gives you any way to see that you are still
 transmitting once the screen is off, and a hot microphone in a pocket is worse
 than a dropped call. OPEN is the pocket mode, and its button still mutes you.
 
-## If someone drops out
+## If the link drops
 
-A pairing code carries one session's ICE credentials and DTLS fingerprint, so
-it cannot be reused — reconnecting always needs a fresh code. **Relink**, in
-the channel, mints one without walking back out to the setup screen:
+There are two different situations here and they cost very different amounts
+of effort.
 
-1. Whoever still has the app open taps **Relink**. A new code appears.
-2. The other person opens the app and taps **Join channel**, then scans it.
+### The network moved, both apps still open
+
+This is nearly every drop: you walked out of range, the hotspot hiccuped, the
+phone changed network. **Nothing is required of either of you.** Two seconds
+after the link falls over, the app renegotiates over its own control channel —
+an ICE restart — and the audio comes back. The pill shows `RELINKING` and then
+`LINKED` again. No codes, no scanning, no tapping.
+
+**Relink** forces the same thing by hand if the audio is bad but the link has
+not formally dropped. Either side can press it; if you are not the side that
+opened the channel, your phone asks the other one to do the re-offer.
+
+### One of you actually quit the app
+
+Now there is nothing to renegotiate over, and this is the part that cannot be
+automated. **A pairing code cannot be saved and reused.** It carries ICE
+credentials and a DTLS fingerprint belonging to one live connection object,
+plus port numbers that stop existing when the page closes. Replaying an old
+code points at an endpoint that is gone, with keys that no longer match.
+
+Nothing can be cached to avoid this, because the information does not survive
+the app closing on either phone. Pairing again means the usual two scans:
+
+1. Whoever still has it open taps **Relink**. A fresh code appears.
+2. The other person opens the app, taps **Join channel**, and scans it.
+3. They show the reply code back to be scanned.
 
 ## Storage footprint
 
