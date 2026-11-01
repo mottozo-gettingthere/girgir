@@ -1,8 +1,14 @@
 /* Girgir service worker: cache the app shell on first load so it runs with no
-   network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
-   decodes QR codes natively never download it, and those that need it fetch it on
-   first run and get it cached by the runtime handler below. */
-const CACHE = 'girgir-v23';
+   network.
+
+   vendor/jsQR.min.js used to be left out of this list, on the reasoning that a
+   phone with native QR decoding would never need it. Two things were wrong with
+   that. The app asks for it at boot on every phone anyway, so the download was
+   not being saved; and the phones that need it are exactly the ones whose native
+   decoder silently returns nothing, which is not known until long after install,
+   possibly with no network left to fetch it. 128 KB once, for a scanner that
+   works on every phone offline. */
+const CACHE = 'girgir-v24';
 const ASSETS = [
   './',
   'index.html',
@@ -13,6 +19,7 @@ const ASSETS = [
   'icon-192.png',
   'icon-512.png',
   'vendor/qrcode.js',
+  'vendor/jsQR.min.js',
   'vendor/plex-mono-400.woff2',
   'vendor/plex-mono-600.woff2'
 ];

@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 23;
+const APP_VERSION = 24;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -2200,7 +2200,10 @@ function loadJsQR() {
   jsqrLoad = new Promise((res, rej) => {
     const s = document.createElement('script');
     s.src = 'vendor/jsQR.min.js';
-    s.onload = res;
+    /* A script that loads but defines nothing is a failure, not a success -
+       claiming the backup is in use when it is not sends the scan back into
+       exactly the silence this was meant to end. */
+    s.onload = () => (window.jsQR ? res() : rej(new Error('jsQR missing')));
     s.onerror = rej;
     document.head.appendChild(s);
   });
@@ -2215,6 +2218,11 @@ async function startCamera(videoEl) {
   if (!detector) {
     try { await loadJsQR(); }
     catch (e) { toast('QR reader unavailable - paste the code instead', 5000); }
+  } else {
+    /* Warmed in the background, because a native decoder that reports itself
+       healthy may still decode nothing, and the swap should not then wait on
+       a download. */
+    loadJsQR().catch(() => {});
   }
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({
@@ -2247,15 +2255,28 @@ const SCAN_INTERVAL_MS = 100;
 
    Nothing tells an empty result apart from "no code in shot", so the only
    safe reading is time: once the native decoder has had a good long look and
-   found nothing, stop believing it and hand the frames to jsQR instead. */
+   found nothing, stop believing it and hand the frames to jsQR instead.
+
+   That handover used to be written as `barren >= NATIVE_PATIENCE &&
+   window.jsQR`, which quietly required the backup to be loaded already. On
+   the one phone that needed it - native decoder present, permanently empty,
+   backup never downloaded - the condition was false for ever, so the dead
+   decoder was never retired and the backup was never reached. The camera ran
+   for days without decoding anything and without saying a word. The backup is
+   now precached, and asked for here rather than assumed. */
 const NATIVE_PATIENCE = 20;   /* frames at 100 ms, so about two seconds */
+
+/* However bad a decoder is, a scan that silently never ends is worse: there
+   is always the link, and nothing was ever pointing at it. */
+const SCAN_HINT_MS = 25000;
 
 function runScanLoop(videoEl, detector, handler, filter) {
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d', { willReadFrequently: true });
   let busy = false;
   let det = nativeDead ? null : detector;
-  let barren = 0;
+  let barren = 0, hinted = false, noDecoder = false;
+  const startedAt = Date.now();
 
   const tick = async () => {
     if (!scanning) return;
@@ -2280,10 +2301,12 @@ function runScanLoop(videoEl, detector, handler, filter) {
             det = null;
           }
           if (codes && codes.length) text = codes[0].rawValue;
-          else if (det && ++barren >= NATIVE_PATIENCE && window.jsQR) {
+          else if (det && ++barren >= NATIVE_PATIENCE) {
             nativeDead = true;
             det = null;
-            toast('Using the backup QR reader', 3000);
+            if (window.jsQR) toast('Using the backup QR reader', 3000);
+            else loadJsQR().then(() => toast('Using the backup QR reader', 3000))
+                           .catch(() => { noDecoder = true; });
           }
         }
         if (!text && !det && window.jsQR) {
@@ -2295,6 +2318,13 @@ function runScanLoop(videoEl, detector, handler, filter) {
           buzz(30);
           consume(text, handler);
           return;
+        }
+        if (!text && !hinted && Date.now() - startedAt > SCAN_HINT_MS) {
+          hinted = true;
+          toast(noDecoder || (!det && !window.jsQR)
+            ? 'This phone is not decoding QR codes at all \u2014 use Send as link, or paste the code'
+            : 'Still nothing \u2014 fill the frame with the code, or use Send as link',
+            10000);
         }
       } catch (e) { /* skip this frame */ }
       busy = false;

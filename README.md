@@ -385,6 +385,39 @@ The decode loop runs on a timer rather than `requestAnimationFrame`, because
 rAF stops whenever the page is not being painted, which would freeze scanning
 without any sign of it.
 
+## When a phone will not scan
+
+One handset read nothing for days. The camera was up, the preview was sharp,
+the code was right in frame, and nothing ever happened — no error, no timeout,
+no sign anything was wrong.
+
+Android's `BarcodeDetector` is backed by a Play Services module fetched on
+demand. When that module is not on the phone the object still exists, still
+lists `qr_code` among its formats, still constructs, and then returns an empty
+array for every frame it is ever given. There is no error to catch and no way
+to tell "no code in this frame" from "this decoder is dead", so the app watches
+the clock instead: twenty barren frames and it stops believing the native
+decoder and switches to the bundled one.
+
+That switch was written as `barren >= NATIVE_PATIENCE && window.jsQR`, which
+quietly required the backup to be loaded **already**. On the one phone that
+needed it — native decoder present, permanently empty, backup never downloaded
+because Android was assumed not to need it — the condition could never become
+true. The dead decoder was never retired, the backup was never reached, and the
+guard meant to rescue the scan was the thing preventing it. Two sensible
+decisions, each fine alone, that together made the failure permanent and
+silent.
+
+So: the backup is cached on every phone, the switch asks for it rather than
+assuming it, and a scan that finds nothing for 25 seconds now says so and
+points at the link, which needs no camera at all.
+
+**diag.html** settles it on any phone in two seconds. *Test QR scanner* draws a
+clean code at the density a real pairing code reaches, hands it to the phone's
+own reader and then to the backup, and tells you which of them can actually
+read it. A phone that fails the first line and passes the second has exactly
+this fault, and the app will now handle it by itself.
+
 ## If the link drops
 
 There are two different situations here and they cost very different amounts
@@ -478,13 +511,12 @@ Deliberately small, and you can see and clear it in the app under **?**.
 
 | | Cached |
 |---|---|
-| Android | ~142 KB |
-| iPhone | ~270 KB |
+| Any phone | ~270 KB |
 
-The difference is the QR decoder. Chrome on Android decodes QR codes natively
-through `BarcodeDetector`, so the 127 KB fallback decoder is never downloaded
-or cached there. Safari has no such API, so the iPhone fetches it once on first
-run — while still online — and keeps it.
+Both now cache the same thing, the 128 KB backup QR decoder included. It used
+to be skipped on Android, which decodes QR codes natively through
+`BarcodeDetector`, on the reasoning that those phones would never need it.
+That reasoning cost a week. See **When a phone will not scan** below.
 
 Beyond the cached app, **nothing is stored at all**. On every launch the app
 clears `localStorage`, `sessionStorage` and any IndexedDB databases, so stale
@@ -555,7 +587,7 @@ QR at all.
 | `manifest.webmanifest` | Makes it installable |
 | `diag.html` | Standalone capability check — open it on each phone |
 | `vendor/qrcode.js` | QR encoder, always cached |
-| `vendor/jsQR.min.js` | QR decoder, fetched only where `BarcodeDetector` is missing |
+| `vendor/jsQR.min.js` | Backup QR decoder, cached on every phone |
 | `vendor/plex-mono-*.woff2` | Typeface, local — nothing loads from a CDN |
 
 Everything is vendored deliberately: a CDN reference would be one more thing

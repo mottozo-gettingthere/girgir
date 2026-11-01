@@ -38,10 +38,12 @@
 <button id="bBuzz">Test vibration</button>
 <button id="bTone">Test tone</button>
 <button id="bNet">Test local address</button>
+<button id="bScan">Test QR scanner</button>
 <div id="live"></div>
 
 <p id="ua"></p>
 
+<script src="vendor/qrcode.js"></script>
 <script>
 const out = document.getElementById('out');
 const live = document.getElementById('live');
@@ -136,6 +138,87 @@ document.getElementById('bMic').onclick = async () => {
    never connect: what address does this browser actually hand the other one?
    A .local name means the other side has to resolve it over mDNS, which many
    networks quietly drop. */
+/* Decides, on this phone alone, whether its QR scanner actually works.
+
+   Android's BarcodeDetector is backed by a Play Services module fetched on
+   demand. When that module is absent the object still exists, still lists
+   qr_code, still constructs - and returns an empty array for every frame for
+   ever. Nothing about the camera looks wrong, which is what made this so slow
+   to find. Here the phone is handed a QR code it cannot miss: a clean one
+   drawn on a canvas at the same density as a real pairing code. Anything but
+   a decode is the decoder's fault, not the camera's. */
+document.getElementById('bScan').onclick = async () => {
+  live.innerHTML = '';
+  const SAMPLE = 'E1O' + 'TEST'.repeat(200);
+
+  let canvas = null;
+  try {
+    const qr = qrcode(0, 'L');
+    qr.addData(SAMPLE, 'Byte');
+    qr.make();
+    const n = qr.getModuleCount(), quiet = 4, sc = Math.floor(900 / (n + quiet * 2));
+    canvas = document.createElement('canvas');
+    canvas.width = canvas.height = (n + quiet * 2) * sc;
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#fff'; g.fillRect(0, 0, canvas.width, canvas.height);
+    g.fillStyle = '#000';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++)
+      if (qr.isDark(r, c)) g.fillRect((c + quiet) * sc, (r + quiet) * sc, sc, sc);
+    row('Test code drawn', true, n + ' modules, the size a pairing code reaches', live);
+  } catch (e) {
+    row('Test code drawn', false, String(e && e.message || e), live);
+    return;
+  }
+
+  let det = null, formats = [];
+  try {
+    if ('BarcodeDetector' in window) {
+      formats = await window.BarcodeDetector.getSupportedFormats();
+      if (formats.includes('qr_code')) det = new window.BarcodeDetector({ formats: ['qr_code'] });
+    }
+  } catch (e) { /* reported below */ }
+  row("This phone's own QR reader", det ? 'PRESENT' : 'ABSENT',
+      det ? 'says it can read QR codes' : 'the backup reader is used instead', live);
+
+  if (det) {
+    let found = null, threw = '';
+    for (let i = 0; i < 5 && !found; i++) {
+      try {
+        const r = await det.detect(canvas);
+        if (r && r.length) found = r[0].rawValue;
+      } catch (e) { threw = String(e && e.message || e); break; }
+    }
+    row('  \u2514 does it actually read one', found === SAMPLE,
+        found === SAMPLE ? 'working normally'
+          : threw ? 'it failed: ' + threw
+          : 'IT IS BROKEN \u2014 five clean attempts, nothing returned. This is the '
+            + 'fault that leaves the camera running and never scanning.', live);
+  }
+
+  let haveJs = !!window.jsQR;
+  if (!haveJs) {
+    await new Promise(done => {
+      const sc2 = document.createElement('script');
+      sc2.src = 'vendor/jsQR.min.js';
+      sc2.onload = sc2.onerror = done;
+      document.head.appendChild(sc2);
+    });
+    haveJs = !!window.jsQR;
+  }
+  row('Backup QR reader', haveJs, haveJs ? 'available offline' : 'could not be loaded', live);
+
+  if (haveJs) {
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    const img = g.getImageData(0, 0, canvas.width, canvas.height);
+    let got = null;
+    try { got = jsQR(img.data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' }); }
+    catch (e) { /* reported below */ }
+    row('  \u2514 does it actually read one', !!(got && got.data === SAMPLE),
+        got && got.data === SAMPLE ? 'working \u2014 this phone can scan whatever its own reader does'
+          : 'it could not read a perfect code, so the camera is not the problem', live);
+  }
+};
+
 document.getElementById('bNet').onclick = async () => {
   live.innerHTML = '';
   let gotMic = false;
