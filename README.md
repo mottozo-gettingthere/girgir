@@ -353,10 +353,33 @@ they cannot tie. **Join channel** is still there for when one of you would
 rather scan deliberately.
 
 It would be neater for the first phone to open its camera the moment the other
-one scans, and that is not possible. Until the reply arrives there is no
-channel, and the first phone's ICE agent cannot even validate the other's
-probes without a remote description, so there is no event to react to. Leaving
-the camera open and waiting is the closest thing to it.
+one scans, and that is not possible: until the reply arrives there is no
+channel to carry the news. Leaving the camera open and waiting is the closest
+thing to it.
+
+The phone holding the reply, though, **can** tell whether anyone has taken it,
+and this turned out to matter. A phone that has not yet scanned your reply
+still answers your connectivity checks - it validates them against the
+credentials it published in its own code, no remote description required - so
+ICE climbs all the way to `connected` and then stops dead, because nothing on
+that side knows an encryption handshake is due. The call state sits on
+`connecting` for as long as the page is open. That is the **Linking up that
+never finishes**, and it is not a network fault: the two phones are reaching
+each other perfectly.
+
+One counter separates the two cases, `requestsReceived` - checks the other
+phone started itself, which it only does once it holds your reply. Measured on
+two peers in one browser: reply scanned, 6 inbound checks; reply ignored, 0
+inbound while the *replies* to our own checks still reached 6. So
+`responsesReceived` proves nothing, which is the trap, and only
+`requestsReceived` answers the question.
+
+After a minute of that signature the app says **Not scanned yet** and names
+what is actually wrong. It does not touch the code on screen, because the code
+is still perfectly good - an earlier draft called it expired after ten seconds
+and cut straight across a handover that connected moments later. Only a
+connection that has genuinely failed takes the code down with it, and that is
+the one case that offers a fresh one.
 
 The decode loop runs on a timer rather than `requestAnimationFrame`, because
 rAF stops whenever the page is not being painted, which would freeze scanning

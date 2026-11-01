@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 22;
+const APP_VERSION = 23;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -76,6 +76,7 @@ let micStream = null, micTrack = null, remoteStream = null;
 let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
+let lastOfferCode = '', linkedOnce = false;
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let bus = null;
 let route = 'earpiece';
@@ -1352,21 +1353,115 @@ function showNet(a, b) {
   ui.vNet.classList.toggle('warn', !sameLan);
 }
 
+/* Whether the far side has ever sent us a connectivity check of its own.
+
+   requestsReceived is the only counter that answers this. A phone that has
+   not taken our reply up still *answers* our checks - it can validate them
+   against the credentials it published in its own offer - so responsesReceived
+   climbs normally and proves nothing. Measured on two peers in one browser:
+   reply scanned, requestsReceived 6; reply ignored, requestsReceived 0 while
+   responsesReceived still reached 6. */
+async function peerEverProbed() {
+  if (!pc || !pc.getStats) return false;
+  try {
+    let seen = false;
+    (await pc.getStats()).forEach(r => {
+      if (r.type !== 'candidate-pair') return;
+      if (r.requestsReceived > 0) seen = true;
+    });
+    return seen;
+  } catch (e) { return false; }
+}
+
 /* LOST on its own says nothing, and the screen behind it still reads
    "Linking up" - which is how a dead link looks like a slow one. The two
    descriptions already hold the answer: a failure here is almost always one
    of three things, and which one is readable from the addresses the two
    sides offered each other. */
-function explainFailure() {
+/* Two different things, and calling both of them 'expired' was wrong: a
+   reply nobody has scanned yet is still perfectly good, and saying otherwise
+   talked over a handover that went on to succeed. Only a connection that has
+   actually failed takes the code down with it. */
+function staleMsg(theirs, hard) {
+  /* A .local name is Chrome hiding the address; printing one at someone is
+     noise, not information. */
+  const who = (theirs && !/\.local$/i.test(theirs)) ? theirs : 'the other phone';
+  return hard
+    ? 'Their phone never took this code up \u2014 ' + who + ' answered us but never sent ' +
+      'a check of its own, which is what an unscanned reply looks like. This code has ' +
+      'gone down with the connection: tap Fresh code and let them scan that one.'
+    : 'Still not scanned \u2014 ' + who + ' is answering us but has not taken this reply ' +
+      'up yet. The code below is still good, so there is nothing to redo: let them scan ' +
+      'it, or send it as a link.';
+}
+
+function showStale(theirs, hard) {
+  const msg = staleMsg(theirs, hard);
+  toast(msg, hard ? 12000 : 8000);
+  if (hard) setPill('lost', 'NOT SCANNED');
+  const step = hard ? 'CODE EXPIRED' : 'NOT SCANNED YET';
+  if (!ui.views.code.hidden) { ui.codeStep.textContent = step; ui.codeHint.textContent = msg; }
+  else if (!ui.views.scan.hidden) { ui.scanStep.textContent = step; ui.scanHint.textContent = msg; }
+  /* Only offered once the old code is genuinely dead. Replacing a working one
+     invalidates the very code the other phone may be lining up on. */
+  if (hard && lastOfferCode) {
+    ui.btnNext.textContent = 'Fresh code';
+    ui.btnNext.onclick = () => {
+      const again = lastOfferCode;
+      teardownPeer();
+      consume(again, takeOffer);
+    };
+  }
+  return msg;
+}
+
+/* The reply that nobody scans never fails - it hangs.
+
+   Because the far phone answers our checks without holding our reply, ICE
+   reaches 'connected' and stops there: DTLS never starts, because nothing on
+   that side knows a handshake is due. connectionState sits on 'connecting'
+   for as long as the page is open, which is the 'Linking up' that never
+   finishes. Waiting for a failure here waits forever, so this watches for
+   the signature instead - ICE up, no inbound check.
+
+   The wait has to be generous. Every healthy pairing passes through this exact
+   state between the reply going on screen and the other phone scanning it, and
+   a ten second hold cut straight across a slow handover in testing and called
+   a code dead that connected moments later. Walking a phone across a room is
+   not a fault, so nothing is said for a full minute. */
+const UPTAKE_QUIET_MS = 60000;
+let uptakeTimer = 0;
+function watchAnswerUptake() {
+  clearInterval(uptakeTimer);
+  let iceUpSince = 0;
+  uptakeTimer = setInterval(async () => {
+    if (!pc || amOfferer || pc.connectionState === 'connected') { clearInterval(uptakeTimer); return; }
+    if (await peerEverProbed()) { clearInterval(uptakeTimer); return; }
+    if (pc.iceConnectionState !== 'connected' && pc.iceConnectionState !== 'completed') { iceUpSince = 0; return; }
+    if (!iceUpSince) { iceUpSince = Date.now(); return; }
+    if (Date.now() - iceUpSince < UPTAKE_QUIET_MS) return;
+    clearInterval(uptakeTimer);
+    showStale(sdpHost(pc.remoteDescription && pc.remoteDescription.sdp), false);
+  }, 2000);
+}
+
+async function explainFailure() {
   if (!pc) return '';
   const mine = sdpHost(pc.localDescription && pc.localDescription.sdp);
   const theirs = sdpHost(pc.remoteDescription && pc.remoteDescription.sdp);
   showNet(mine, theirs);
-  let msg;
+  const probed = await peerEverProbed();
+  let msg, stale = false;
   if (!mine || !theirs) {
     msg = 'No route \u2014 one phone offered no address at all. Allow the microphone on both, then pair again.';
   } else if (/\.local$/i.test(mine) || /\.local$/i.test(theirs)) {
     msg = 'No route \u2014 a browser hid its address behind a .local name and this network cannot resolve it. Allow the microphone on both phones before pairing.';
+  } else if (!probed && !amOfferer) {
+    /* Nothing was ever heard from them, and this phone is the one holding a
+       reply on screen. That is a scan that has not happened, not a network
+       that cannot carry it. */
+    stale = true;
+    msg = staleMsg(theirs, true);
   } else if (!sameSubnet(mine, theirs)) {
     msg = 'No route \u2014 ' + mine + ' and ' + theirs + ' are on different networks.';
   } else {
@@ -1380,8 +1475,13 @@ function explainFailure() {
   }
   toast(msg, 12000);
   if (!ui.views.scan.hidden) {
-    ui.scanStep.textContent = 'NO ROUTE';
+    ui.scanStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.scanHint.textContent = msg;
+  }
+  if (!ui.views.code.hidden) {
+    ui.codeStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
+    ui.codeHint.textContent = msg;
+    if (stale) showStale(theirs, true);
   }
   return msg;
 }
@@ -1405,6 +1505,7 @@ async function relink() {
 /* Drops everything that belonged to one session while keeping the microphone,
    so a fresh offer can be built on the spot. */
 function teardownPeer() {
+  clearInterval(uptakeTimer);
   stopHeartbeat();
   lastHeard = 0;
   clearTimeout(recoverTimer);
@@ -1608,8 +1709,9 @@ async function attemptRecovery(force) {
     /* Nothing left to renegotiate over. Rather than asking for a decision,
        this phone goes on standby by itself - see standby() for why that is
        the whole procedure from here. */
-    ui.dropText.textContent = (peerName || 'They') +
-      ' left the channel. Going on standby \u2014 point the two phones at each other.';
+    ui.dropText.textContent = linkedOnce
+      ? (peerName || 'They') + ' left the channel. Going on standby \u2014 point the two phones at each other.'
+      : 'Never linked up. Point the two phones at each other and pair again.';
     ui.dropBar.hidden = false;
     clearTimeout(standbyTimer);
     standbyTimer = setTimeout(() => {
@@ -1788,6 +1890,7 @@ function sendPing(level) {
 /* ---------------- peer connection ---------------- */
 
 function newPeer() {
+  linkedOnce = false;
   pc = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
   pc.ontrack = ev => {
     remoteStream = ev.streams[0] || new MediaStream([ev.track]);
@@ -1798,6 +1901,8 @@ function newPeer() {
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     if (s === 'connected') {
+      linkedOnce = true;
+      clearInterval(uptakeTimer);
       clearTimeout(recoverTimer);
       clearTimeout(standbyTimer);
       recovering = false;
@@ -2007,6 +2112,7 @@ async function joinChannel() {
 
 async function takeOffer(code) {
   amOfferer = false;
+  lastOfferCode = code;
   const { role, sdp } = await unpackDesc(code);
   if (role !== 'O') throw new Error('That is the wrong code — scan the one from "Create channel".');
   newPeer();
@@ -2017,6 +2123,7 @@ async function takeOffer(code) {
   await pc.setLocalDescription(await pc.createAnswer());
   await gatheringDone();
   const answer = await packDesc('A', pc.localDescription.sdp);
+  watchAnswerUptake();
   showCode(answer, 'STEP 2 OF 2',
     'Send this back as a link, or let their phone scan it. You will connect automatically.',
     'Waiting for them…', () => { if (pc.connectionState !== 'connected') toast('Still waiting for them to scan'); });
