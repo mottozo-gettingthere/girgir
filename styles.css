@@ -653,3 +653,29 @@ body {
 }
 .mg b { color: var(--fg); font-size: 13px; min-width: 10px; }
 .mg span { color: var(--muted); font-size: 13px; letter-spacing: 2px; }
+
+/* ---------------- morse practice ---------------- */
+
+.drill-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel-2); padding: 18px 12px; margin-bottom: 12px;
+}
+.drill-prompt { font-size: 52px; line-height: 1; color: var(--tx); letter-spacing: 2px; }
+.drill-sub { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+
+.drill-choices {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;
+}
+.drill-choices button {
+  font-family: var(--mono); font-size: 22px; padding: 14px 0;
+  border-radius: 10px; background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); cursor: pointer;
+}
+.drill-choices button:disabled { opacity: 0.45; }
+
+.drill-feedback {
+  margin: 10px 0 2px; min-height: 20px; font-size: 13px; color: var(--muted);
+}
+.drill-feedback.good { color: var(--rx); }
+.drill-feedback.bad { color: var(--bad); }

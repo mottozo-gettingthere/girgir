@@ -178,6 +178,27 @@ it cannot drift out of step with what the app actually accepts. It holds the
 26 letters, the ten digits and `.` `,` `?`. The branching charts you find
 online carry the letters only.
 
+### Practising on your own
+
+**Practise Morse on your own** sits on the first screen and needs nothing
+paired — no channel, no second phone, no network. Two drills, because
+learning Morse needs both directions and they are genuinely different skills:
+
+- **Send it** shows you a letter and you key it. Get it wrong and it tells
+  you what you actually sent, which letter that turned out to be, and what
+  the target should have been — far more useful than "wrong".
+- **Hear it** plays a letter at a steady speed and gives you four to choose
+  from, with a Replay button. Sending teaches your thumb; only listening
+  teaches you to recognise the rhythm of a letter, which is the harder half.
+
+**+ digits** widens the pool from the 26 letters to include 0–9. There is a
+streak and a best, and the streak resets when you miss, so it is worth
+something. **Skip** reveals the answer and moves on without pretending you
+knew it.
+
+The letter helper applies here too, so you can learn with the net and then
+switch it off.
+
 Timing is deliberately slow: a dot is anything under 260 ms, a letter lands
 after 820 ms of nothing and a word after 1.9 s. Real Morse keeps the same
 ratios — dash is three dots, letter gap three, word gap seven — just much

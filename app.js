@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 21;
+const APP_VERSION = 22;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -22,9 +22,15 @@ const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
   views: {
     setup: $('viewSetup'), help: $('viewHelp'), code: $('viewCode'),
-    scan: $('viewScan'), live: $('viewLive')
+    scan: $('viewScan'), live: $('viewLive'), drill: $('viewDrill')
   },
   btnCreate: $('btnCreate'), btnJoin: $('btnJoin'), btnGuide: $('btnGuide'),
+  btnDrill: $('btnDrill'), drillPrompt: $('drillPrompt'), drillSub: $('drillSub'),
+  drillPanel: $('drillPanel'), drillSyms: $('drillSyms'), drillCands: $('drillCands'),
+  drillChoices: $('drillChoices'), drillKey: $('drillKey'), drillFeedback: $('drillFeedback'),
+  drillScore: $('drillScore'), btnDrillSend: $('btnDrillSend'), btnDrillHear: $('btnDrillHear'),
+  btnDrillPool: $('btnDrillPool'), btnDrillReplay: $('btnDrillReplay'),
+  btnDrillSkip: $('btnDrillSkip'), btnDrillBack: $('btnDrillBack'),
   helpBack: $('btnHelpBack'), storeUsed: $('storeUsed'), btnClear: $('btnClear'),
   codeStep: $('codeStep'), codeHint: $('codeHint'), qrCanvas: $('qrCanvas'),
   btnNext: $('btnNext'), codeText: $('codeText'), btnCopy: $('btnCopy'),
@@ -915,6 +921,172 @@ function setMorse(on, fromPeer) {
   /* Opening the keyer on one phone opens it on the other, because a message
      arriving on a screen that is not showing it is no use to anybody. */
   if (!fromPeer) sendCtl({ t: 'mor', on: morseOn });
+}
+
+/* ---------------- morse practice ---------------- */
+
+/* Learning Morse needs both directions and neither needs a second phone, so
+   practice lives outside the channel entirely: it never touches the data
+   channel and works with nothing paired. */
+let drillMode = 'send', drillDigits = false, drillTarget = '';
+let drillSyms = '', drillDownAt = 0, drillTimer = 0, drillNextTimer = 0;
+let drillStreak = 0, drillBest = 0;
+
+function drillPool() {
+  const all = Object.keys(MORSE);
+  return drillDigits ? all.filter(k => /[A-Z0-9]/.test(k)) : all.filter(k => /[A-Z]/.test(k));
+}
+
+/* A whole character at a steady speed, which is the only way the rhythm of a
+   letter ever becomes recognisable. */
+function playMorseCode(code) {
+  const ctx = audio();
+  if (!ctx) return;
+  const unit = 0.09;
+  let t = ctx.currentTime + 0.06;
+  for (const sym of code) {
+    const dur = sym === '-' ? unit * 3 : unit;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 620;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.008);
+    g.gain.setValueAtTime(0.12, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.02);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+    t += dur + unit;
+  }
+}
+
+function renderDrill() {
+  ui.drillSyms.textContent = drillSyms ? morsePretty(drillSyms) : '—';
+  ui.drillCands.hidden = !morseHelp || drillMode !== 'send';
+  if (!ui.drillCands.hidden) {
+    const left = morseCandidates(drillSyms);
+    ui.drillCands.textContent = left.length
+      ? left.join(' ')
+      : 'nothing has that pattern — pause to clear it';
+  }
+  ui.drillScore.textContent = 'streak ' + drillStreak + ' · best ' + drillBest;
+}
+
+function drillSay(msg, kind) {
+  ui.drillFeedback.textContent = msg;
+  ui.drillFeedback.className = 'drill-feedback' + (kind ? ' ' + kind : '');
+}
+
+function drillRight() {
+  drillStreak++;
+  if (drillStreak > drillBest) drillBest = drillStreak;
+  drillSay('✓ ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]), 'good');
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 900);
+}
+
+function drillWrong(msg) {
+  drillStreak = 0;
+  drillSay('✗ ' + msg, 'bad');
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 2600);
+}
+
+function drillJudgeKeyed() {
+  if (!drillSyms) return;
+  const sent = drillSyms;
+  drillSyms = '';
+  if (sent === MORSE[drillTarget]) { drillRight(); return; }
+  const was = morseLetter(sent);
+  drillWrong('that was ' + morsePretty(sent) + (was ? ' — ' + was : '') +
+             '.  ' + drillTarget + ' is ' + morsePretty(MORSE[drillTarget]));
+}
+
+function drillKeyDown() {
+  clearTimeout(drillTimer);
+  drillDownAt = Date.now();
+  keyToneOn();
+}
+
+function drillKeyUp() {
+  if (!drillDownAt) return;
+  const held = Date.now() - drillDownAt;
+  drillDownAt = 0;
+  keyToneOff();
+  drillSyms += held > DOT_MAX ? '-' : '.';
+  renderDrill();
+  drillTimer = setTimeout(drillJudgeKeyed, LETTER_GAP);
+}
+
+function drillChoose(pick, btn) {
+  Array.from(ui.drillChoices.children).forEach(b => { b.disabled = true; });
+  if (pick === drillTarget) drillRight();
+  else {
+    if (btn) btn.style.borderColor = 'var(--bad)';
+    drillWrong('that was ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]));
+  }
+}
+
+function buildChoices() {
+  const pool = drillPool().filter(k => k !== drillTarget);
+  const picks = [drillTarget];
+  while (picks.length < 4 && pool.length) {
+    picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  for (let i = picks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = picks[i]; picks[i] = picks[j]; picks[j] = t;
+  }
+  ui.drillChoices.innerHTML = '';
+  picks.forEach(k => {
+    const b = document.createElement('button');
+    b.textContent = k;
+    b.onclick = () => drillChoose(k, b);
+    ui.drillChoices.appendChild(b);
+  });
+}
+
+function nextDrill() {
+  clearTimeout(drillTimer);
+  clearTimeout(drillNextTimer);
+  drillSyms = '';
+  const pool = drillPool();
+  let next = pool[Math.floor(Math.random() * pool.length)];
+  if (pool.length > 1) {
+    while (next === drillTarget) next = pool[Math.floor(Math.random() * pool.length)];
+  }
+  drillTarget = next;
+  drillSay('—');
+
+  const sending = drillMode === 'send';
+  ui.drillPrompt.textContent = sending ? drillTarget : '?';
+  ui.drillSub.textContent = sending ? 'key this one' : 'which one was that?';
+  ui.drillPanel.hidden = !sending;
+  ui.drillKey.hidden = !sending;
+  ui.btnDrillReplay.hidden = sending;
+  ui.drillChoices.hidden = sending;
+  if (!sending) {
+    buildChoices();
+    setTimeout(() => playMorseCode(MORSE[drillTarget]), 260);
+  }
+  renderDrill();
+}
+
+function setDrillMode(m) {
+  drillMode = m;
+  ui.btnDrillSend.setAttribute('aria-pressed', String(m === 'send'));
+  ui.btnDrillHear.setAttribute('aria-pressed', String(m === 'hear'));
+  drillStreak = 0;
+  nextDrill();
+}
+
+function openDrill() {
+  show('drill');
+  /* A tap got us here, so the context is allowed to start now. */
+  audio();
+  setDrillMode(drillMode);
 }
 
 /* ---------------- transmit gate ---------------- */
@@ -2366,6 +2538,9 @@ ui.togHalf.onclick = () => {
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal', 'togEars',
   'togMorse', 'togMorseHelp', 'morsePanel', 'morseSyms', 'morseCands', 'morseText',
   'morseGrid', 'morseSheet', 'btnMorseHide', 'btnMorseClear', 'btnMorseChart', 'btnMorseClose',
+  'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms', 'drillCands',
+  'drillChoices', 'drillKey', 'drillFeedback', 'drillScore', 'btnDrillSend', 'btnDrillHear',
+  'btnDrillPool', 'btnDrillReplay', 'btnDrillSkip', 'btnDrillBack',
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
@@ -2462,6 +2637,39 @@ ui.btnMorseHide.onclick = () => {
 };
 
 ui.btnMorseClear.onclick = () => morseClear(true);
+
+ui.btnDrill.onclick = openDrill;
+ui.btnDrillBack.onclick = () => {
+  clearTimeout(drillTimer);
+  clearTimeout(drillNextTimer);
+  keyToneOff();
+  show('setup');
+};
+ui.btnDrillSend.onclick = () => setDrillMode('send');
+ui.btnDrillHear.onclick = () => setDrillMode('hear');
+ui.btnDrillPool.onclick = () => {
+  drillDigits = !drillDigits;
+  ui.btnDrillPool.setAttribute('aria-pressed', String(drillDigits));
+  nextDrill();
+};
+ui.btnDrillReplay.onclick = () => playMorseCode(MORSE[drillTarget]);
+ui.btnDrillSkip.onclick = () => {
+  drillStreak = 0;
+  drillSay(drillTarget + '   ' + morsePretty(MORSE[drillTarget]));
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 1400);
+};
+
+ui.drillKey.addEventListener('contextmenu', e => e.preventDefault());
+ui.drillKey.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { ui.drillKey.setPointerCapture(e.pointerId); } catch (err) {}
+  drillKeyDown();
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+  ui.drillKey.addEventListener(type, () => drillKeyUp());
+});
 
 ui.btnMorseChart.onclick = () => { renderMorseChart(); ui.morseSheet.hidden = false; };
 ui.btnMorseClose.onclick = () => { ui.morseSheet.hidden = true; };

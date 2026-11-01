@@ -58,7 +58,45 @@
         <button class="btn" id="btnJoin">Join channel</button>
       </div>
       <button class="btn ghost" id="btnGuide">First time? Read the 4-step setup</button>
+      <button class="btn ghost" id="btnDrill">Practise Morse on your own</button>
       <p class="note">Both phones must be on the same Wi-Fi or hotspot.</p>
+    </div>
+  </section>
+
+  <!-- ============ MORSE PRACTICE ============ -->
+  <section class="view" id="viewDrill" hidden>
+    <div class="stack">
+      <p class="step">PRACTICE &middot; NO ONE ELSE NEEDED</p>
+
+      <div class="toggles">
+        <button class="tog" id="btnDrillSend" aria-pressed="true">Send it</button>
+        <button class="tog" id="btnDrillHear" aria-pressed="false">Hear it</button>
+        <button class="tog" id="btnDrillPool" aria-pressed="false">+ digits</button>
+      </div>
+
+      <div class="drill-card">
+        <span class="drill-prompt" id="drillPrompt">&mdash;</span>
+        <span class="drill-sub" id="drillSub">key this one</span>
+      </div>
+
+      <div class="morse" id="drillPanel">
+        <div class="morse-head">
+          <span class="morse-syms" id="drillSyms">&mdash;</span>
+          <button class="tog tiny" id="btnDrillReplay" hidden>Replay</button>
+          <button class="tog tiny" id="btnDrillSkip">Skip</button>
+        </div>
+        <p class="morse-cands" id="drillCands"></p>
+      </div>
+
+      <div class="drill-choices" id="drillChoices" hidden></div>
+
+      <button class="talk" id="drillKey">
+        <span class="talk-label">KEY &middot; SHORT = DOT</span>
+      </button>
+
+      <p class="drill-feedback" id="drillFeedback">&mdash;</p>
+      <p class="note" id="drillScore">streak 0 &middot; best 0</p>
+      <button class="link" id="btnDrillBack">Back</button>
     </div>
   </section>
 
