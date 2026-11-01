@@ -618,3 +618,38 @@ body {
 .watch-text { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) { .watch-cam::after { animation: none; } }
+
+/* ---------------- morse keyer ---------------- */
+
+.morse {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); padding: 10px 12px; margin-bottom: 12px;
+}
+.morse-head { display: flex; align-items: center; gap: 6px; }
+.morse-syms {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 20px; letter-spacing: 5px; color: var(--tx); min-height: 24px;
+}
+.tog.tiny { flex: 0 0 auto; padding: 5px 9px; font-size: 10px; }
+
+.morse-cands {
+  margin: 9px 0 0; font-size: 12px; line-height: 1.7;
+  color: var(--muted); word-spacing: 4px;
+}
+.morse-cands b { color: var(--rx); font-weight: 600; }
+
+.morse-text {
+  margin: 8px 0 0; font-size: 18px; letter-spacing: 3px;
+  color: var(--fg); min-height: 22px; word-break: break-word;
+}
+.morse-text.masked { color: var(--dim); }
+
+.morse-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px;
+}
+.mg {
+  display: flex; align-items: baseline; gap: 8px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px;
+}
+.mg b { color: var(--fg); font-size: 13px; min-width: 10px; }
+.mg span { color: var(--muted); font-size: 13px; letter-spacing: 2px; }

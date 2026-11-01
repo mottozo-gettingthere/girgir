@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 20;
+const APP_VERSION = 21;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -56,7 +56,11 @@ const ui = {
   labelYou: $('labelYou'), labelThem: $('labelThem'),
   micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
   togEars: $('togEars'),
-  flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
+  togMorse: $('togMorse'), togMorseHelp: $('togMorseHelp'),
+  morsePanel: $('morsePanel'), morseSyms: $('morseSyms'), morseCands: $('morseCands'),
+  morseText: $('morseText'), morseGrid: $('morseGrid'), morseSheet: $('morseSheet'),
+  btnMorseHide: $('btnMorseHide'), btnMorseClear: $('btnMorseClear'),
+  btnMorseChart: $('btnMorseChart'), btnMorseClose: $('btnMorseClose'),  flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
 
 /* ---------------- state ---------------- */
@@ -71,6 +75,9 @@ let bus = null;
 let route = 'earpiece';
 let micDest = null, voice = 'off', voiceNodes = [];
 let voiceTapTimer = 0, lastVoiceTap = 0, pingTaps = [];
+let morseOn = false, morseHelp = true, morseHidden = false;
+let morseSyms = '', morseText = '', morseLetterTimer = 0, morseWordTimer = 0;
+let keyDownAt = 0, keyOsc = null, keyGain = null;
 let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let handsFree = false;
@@ -119,7 +126,7 @@ function load() {
 function save() {
   if (!REMEMBER_SETTINGS) return;
   try {
-    localStorage.setItem('girgir', JSON.stringify({ mode, halfDuplex, rogerBeep, volume, handsFree }));
+    localStorage.setItem('girgir', JSON.stringify({ mode, halfDuplex, rogerBeep, volume, handsFree, morseHelp }));
   } catch (e) { /* storage unavailable */ }
 }
 
@@ -709,6 +716,207 @@ function cycleVoice() {
   toast('Voice: ' + voiceInfo(voice).name, 1600);
 }
 
+/* ---------------- morse ---------------- */
+
+/* The two charts people hand you are one table in different clothes. The
+   alphabetical one answers "how do I send K", which you want when writing.
+   The branching one answers "what could this still be", which is what you
+   want while someone is sending - each dot or dash halves what is left. The
+   helper below is that second chart: a prefix filter over this table. */
+const MORSE = {
+  A: '.-',    B: '-...',  C: '-.-.',  D: '-..',   E: '.',     F: '..-.',
+  G: '--.',   H: '....',  I: '..',    J: '.---',  K: '-.-',   L: '.-..',
+  M: '--',    N: '-.',    O: '---',   P: '.--.',  Q: '--.-',  R: '.-.',
+  S: '...',   T: '-',     U: '..-',   V: '...-',  W: '.--',   X: '-..-',
+  Y: '-.--',  Z: '--..',
+  '1': '.----', '2': '..---', '3': '...--', '4': '....-', '5': '.....',
+  '6': '-....', '7': '--...', '8': '---..', '9': '----.', '0': '-----',
+  '.': '.-.-.-', ',': '--..--', '?': '..--..'
+};
+
+/* Real Morse puts a dash at three dots, a letter gap at three and a word gap
+   at seven. These keep those ratios around a deliberately slow 260 ms dot,
+   which is about as fast as a thumb can be accurate. */
+const DOT_MAX = 260;
+const LETTER_GAP = 820;
+const WORD_GAP = 1900;
+
+function morseLetter(syms) {
+  for (const k in MORSE) if (MORSE[k] === syms) return k;
+  return '';
+}
+
+function morseCandidates(prefix) {
+  const out = [];
+  for (const k in MORSE) if (MORSE[k].indexOf(prefix) === 0) out.push(k);
+  return out;
+}
+
+function morsePretty(syms) {
+  return syms.replace(/\./g, '·').replace(/-/g, '–');
+}
+
+/* Held down, so it lasts exactly as long as the thumb does - that is the
+   whole point of a key. */
+function keyToneOn() {
+  const ctx = audio();
+  if (!ctx) return;
+  keyToneOff();
+  keyOsc = ctx.createOscillator();
+  keyGain = ctx.createGain();
+  keyOsc.type = 'sine';
+  keyOsc.frequency.value = 620;
+  keyGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  keyGain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.008);
+  keyOsc.connect(keyGain).connect(ctx.destination);
+  keyOsc.start();
+}
+
+function keyToneOff() {
+  if (!keyOsc) return;
+  const o = keyOsc, g = keyGain;
+  keyOsc = keyGain = null;
+  const ctx = audio();
+  if (!ctx) return;
+  try {
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.02);
+    o.stop(ctx.currentTime + 0.06);
+  } catch (e) { /* already stopped */ }
+}
+
+/* The far end gets discrete symbols rather than a stream, so its tone is
+   rebuilt at the right length instead of carried over the microphone. */
+function morseBeep(sym) {
+  const ctx = audio();
+  if (!ctx) return;
+  const t0 = ctx.currentTime;
+  const dur = sym === '-' ? 0.24 : 0.08;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.value = 620;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.12, t0 + 0.008);
+  g.gain.setValueAtTime(0.12, t0 + dur);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + 0.03);
+  o.connect(g).connect(ctx.destination);
+  o.start(t0);
+  o.stop(t0 + dur + 0.07);
+}
+
+function morseKeyDown() {
+  keyDownAt = Date.now();
+  clearTimeout(morseLetterTimer);
+  clearTimeout(morseWordTimer);
+  keyToneOn();
+}
+
+function morseKeyUp() {
+  if (!keyDownAt) return;
+  const held = Date.now() - keyDownAt;
+  keyDownAt = 0;
+  keyToneOff();
+  morsePush(held > DOT_MAX ? '-' : '.', true);
+}
+
+/* mine says whether this phone keyed it. The far end replays the same
+   symbols and runs no timers of its own, so the sender owns where the
+   letters break and the two slates cannot drift apart. */
+function morsePush(sym, mine) {
+  morseSyms += sym;
+  if (mine) {
+    sendCtl({ t: 'mor', s: sym });
+    morseLetterTimer = setTimeout(() => morseCommit(true), LETTER_GAP);
+    morseWordTimer = setTimeout(() => morseSpace(true), WORD_GAP);
+  }
+  renderMorse();
+}
+
+function morseCommit(mine) {
+  if (!morseSyms) return;
+  morseText += morseLetter(morseSyms) || '¿';
+  morseSyms = '';
+  if (mine) sendCtl({ t: 'mor', s: '|' });
+  renderMorse();
+}
+
+function morseSpace(mine) {
+  morseCommit(mine);
+  if (morseText && morseText.slice(-1) !== ' ') {
+    morseText += ' ';
+    if (mine) sendCtl({ t: 'mor', s: '_' });
+  }
+  renderMorse();
+}
+
+function morseClear(mine) {
+  clearTimeout(morseLetterTimer);
+  clearTimeout(morseWordTimer);
+  morseSyms = '';
+  morseText = '';
+  if (mine) sendCtl({ t: 'mor', s: 'x' });
+  renderMorse();
+}
+
+function renderMorse() {
+  ui.morseSyms.textContent = morseSyms ? morsePretty(morseSyms) : '—';
+
+  ui.morseCands.hidden = !morseHelp;
+  if (morseHelp) {
+    const left = morseCandidates(morseSyms);
+    const exact = morseLetter(morseSyms);
+    if (!left.length) {
+      ui.morseCands.textContent = 'nothing has that pattern — pause to clear it';
+    } else {
+      ui.morseCands.innerHTML = '';
+      if (exact) {
+        const b = document.createElement('b');
+        b.textContent = exact;
+        ui.morseCands.appendChild(b);
+        ui.morseCands.appendChild(document.createTextNode(' · '));
+      }
+      ui.morseCands.appendChild(document.createTextNode(
+        left.filter(k => k !== exact).join(' ') || 'nothing longer'));
+    }
+  }
+
+  const shown = morseHidden ? morseText.replace(/[^ ]/g, '•') : morseText;
+  ui.morseText.textContent = shown || '—';
+  ui.morseText.classList.toggle('masked', morseHidden);
+}
+
+function renderMorseChart() {
+  if (ui.morseGrid.childElementCount) return;
+  Object.keys(MORSE).forEach(k => {
+    const d = document.createElement('div');
+    d.className = 'mg';
+    const b = document.createElement('b');
+    b.textContent = k;
+    const s = document.createElement('span');
+    s.textContent = morsePretty(MORSE[k]);
+    d.appendChild(b);
+    d.appendChild(s);
+    ui.morseGrid.appendChild(d);
+  });
+}
+
+function setMorse(on, fromPeer) {
+  morseOn = !!on;
+  ui.togMorse.setAttribute('aria-pressed', String(morseOn));
+  ui.morsePanel.hidden = !morseOn;
+  if (morseOn) {
+    setLive(false);
+    renderMorse();
+  } else {
+    clearTimeout(morseLetterTimer);
+    clearTimeout(morseWordTimer);
+    keyToneOff();
+  }
+  updateTalk();
+  /* Opening the keyer on one phone opens it on the other, because a message
+     arriving on a screen that is not showing it is no use to anybody. */
+  if (!fromPeer) sendCtl({ t: 'mor', on: morseOn });
+}
+
 /* ---------------- transmit gate ---------------- */
 
 function setLive(on) {
@@ -748,6 +956,12 @@ function setMode(m) {
 }
 
 function updateTalk() {
+  if (morseOn) {
+    ui.talk.classList.remove('live', 'muted');
+    ui.liveBanner.hidden = true;
+    ui.talkLabel.textContent = 'KEY \u00b7 SHORT = DOT';
+    return;
+  }
   ui.talk.classList.toggle('live', live);
   ui.talk.classList.toggle('muted', mode === 'open' && openMuted);
   ui.liveBanner.hidden = !live;
@@ -808,6 +1022,14 @@ function wireChannel(channel) {
     lastHeard = Date.now();
     let m;
     try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.t === 'mor') {
+      if (m.on != null) { if (!!m.on !== morseOn) setMorse(!!m.on, true); return; }
+      if (m.s === '|') morseCommit(false);
+      else if (m.s === '_') morseSpace(false);
+      else if (m.s === 'x') morseClear(false);
+      else if (m.s === '.' || m.s === '-') { morseBeep(m.s); morsePush(m.s, false); }
+      return;
+    }
     if (m.t === 'mic') {
       const spoke = remoteLive;
       remoteLive = !!m.live;
@@ -1950,6 +2172,8 @@ async function requestWakeLock() {
 }
 
 function hangUp() {
+  if (morseOn) setMorse(false, true);
+  morseClear(false);
   setLive(false);
   stopHeartbeat();
   stopScanner();
@@ -2054,10 +2278,12 @@ ui.talk.addEventListener('contextmenu', e => e.preventDefault());
 ui.talk.addEventListener('pointerdown', e => {
   e.preventDefault();
   try { ui.talk.setPointerCapture(e.pointerId); } catch (err) {}
+  if (morseOn) { morseKeyDown(); return; }
   if (mode === 'hold') setLive(true);
 });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
   ui.talk.addEventListener(type, () => {
+    if (morseOn) { morseKeyUp(); return; }
     if (mode === 'hold') { setLive(false); return; }
     if (type !== 'pointerup') return;
     if (mode === 'latch') setLive(!live);
@@ -2138,6 +2364,8 @@ ui.togHalf.onclick = () => {
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal', 'togEars',
+  'togMorse', 'togMorseHelp', 'morsePanel', 'morseSyms', 'morseCands', 'morseText',
+  'morseGrid', 'morseSheet', 'btnMorseHide', 'btnMorseClear', 'btnMorseChart', 'btnMorseClose',
   'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
@@ -2154,7 +2382,11 @@ ui.btnSettings.onclick = () => openSheet(ui.sheet.hidden);
 ui.btnSheetClose.onclick = () => openSheet(false);
 /* Tapping the backdrop closes it; taps inside the card must not. */
 ui.sheet.addEventListener('click', e => { if (e.target === ui.sheet) openSheet(false); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  openSheet(false);
+  ui.morseSheet.hidden = true;
+});
 
 ui.micLvl.addEventListener('input', () => setMicGain(+ui.micLvl.value));
 
@@ -2212,6 +2444,31 @@ ui.togRoger.onclick = () => {
 
 ui.togEars.onclick = () => { setEars(!handsFree); };
 
+ui.togMorse.onclick = () => setMorse(!morseOn);
+
+ui.togMorseHelp.onclick = () => {
+  morseHelp = !morseHelp;
+  ui.togMorseHelp.setAttribute('aria-pressed', String(morseHelp));
+  renderMorse();
+  save();
+};
+
+/* The listener's own choice, so it is never sent anywhere. */
+ui.btnMorseHide.onclick = () => {
+  morseHidden = !morseHidden;
+  ui.btnMorseHide.setAttribute('aria-pressed', String(morseHidden));
+  ui.btnMorseHide.textContent = morseHidden ? 'Reveal' : 'Hide';
+  renderMorse();
+};
+
+ui.btnMorseClear.onclick = () => morseClear(true);
+
+ui.btnMorseChart.onclick = () => { renderMorseChart(); ui.morseSheet.hidden = false; };
+ui.btnMorseClose.onclick = () => { ui.morseSheet.hidden = true; };
+ui.morseSheet.addEventListener('click', e => {
+  if (e.target === ui.morseSheet) ui.morseSheet.hidden = true;
+});
+
 /* Safety releases. */
 window.addEventListener('blur', releaseHold);
 document.addEventListener('visibilitychange', () => {
@@ -2244,6 +2501,7 @@ ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
 ui.togEars.setAttribute('aria-pressed', String(handsFree));
+ui.togMorseHelp.setAttribute('aria-pressed', String(morseHelp));
 updateTalk();
 setPill('idle', 'IDLE');
 initBattery();

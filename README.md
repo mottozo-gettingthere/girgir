@@ -148,6 +148,41 @@ autotune these nodes can actually reach; real autotune needs pitch tracking
 and a scale to snap to. The other three colour the sound instead, with ring
 modulation, filtering and distortion. All of it is cheap, stable, and daft.
 
+### Morse
+
+Turn on **Morse keyer** in settings and the talk button stops being a
+microphone and becomes a key. A short press is a dot, a long one a dash,
+letting go for a moment lands the letter, and a longer pause is a space. The
+far end's panel opens by itself, because a message arriving on a screen that
+is not showing it is no use to anyone.
+
+Both phones see the same slate, and the far end gets its tone rebuilt at the
+right length from the symbols rather than carried over the microphone — so it
+stays clean and works with the mic muted.
+
+**The letter helper** is the useful part if you are learning. It starts with
+all 39 characters and removes the ones you can no longer reach with each dot
+or dash, showing the exact match in colour when you land on one. Tap a single
+dot and 19 remain; every character it drops begins with a dash. That is the
+branching Morse chart doing its job — and it is why those charts exist, since
+reading an alphabetical list while someone is sending is hopeless. Turn the
+helper off to send blind.
+
+**The listener has their own Hide button.** It masks the message to one dot
+per letter, keeping the word breaks, so you can try to read it in your head
+and reveal it only to check. It is a local choice and is never sent, so you
+can hide while the sender sees everything.
+
+**Chart** opens the full table, built from the same data the decoder uses, so
+it cannot drift out of step with what the app actually accepts. It holds the
+26 letters, the ten digits and `.` `,` `?`. The branching charts you find
+online carry the letters only.
+
+Timing is deliberately slow: a dot is anything under 260 ms, a letter lands
+after 820 ms of nothing and a word after 1.9 s. Real Morse keeps the same
+ratios — dash is three dots, letter gap three, word gap seven — just much
+faster than a thumb can be accurate.
+
 ### Ping
 
 Three strengths, so the loudest one cannot go off by accident:
