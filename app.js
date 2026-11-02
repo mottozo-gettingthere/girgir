@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 32;
+const APP_VERSION = 33;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -83,6 +83,11 @@ let lastOfferCode = '', linkedOnce = false;
    rebuilt wrongly, so the next code goes out whole rather than asking anyone
    to decide anything. */
 let lastRemoteForm = '', lastLocalForm = '', shortFormOk = true, shortFormWhy = '';
+/* What the ICE agent held the moment the other side's description was
+   applied. Counting only at failure cannot tell a description that was
+   refused on arrival from one whose addresses were taken up and later
+   discarded - and those are different faults with the same face. */
+let heldOnArrival = -1;
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let bus = null;
 let route = 'earpiece';
@@ -1776,6 +1781,18 @@ function formName(tag) {
    agent hold none of them, and those are completely different faults wearing
    the same face: no pairs. Until this was printed there was no way to tell
    them apart from the outside. */
+/* Called straight after a remote description goes in, before anything else
+   has had a chance to act on it. */
+async function noteArrival(target) {
+  heldOnArrival = -1;
+  if (!target || !target.getStats) return;
+  try {
+    let n = 0;
+    (await target.getStats()).forEach(r => { if (r.type === 'remote-candidate') n++; });
+    heldOnArrival = n;
+  } catch (e) { /* nothing to report, and nothing worth breaking a pairing for */ }
+}
+
 async function pairSnapshot(target) {
   if (!target || !target.getStats) return null;
   const cands = new Map(), rows = [];
@@ -1833,6 +1850,8 @@ function formatPairs(snap) {
   const theirs = sdpAddrs(snap.remoteSdp);
   const held = '\n  the browser is holding: ' + snap.locals + ' of your addresses, '
     + snap.remotes + ' of theirs'
+    + (heldOnArrival >= 0
+        ? ' (' + heldOnArrival + ' of theirs when their code went in)' : '')
     + '\n  states: ' + snap.sig + ' \u00b7 gathering ' + snap.gather
     + ' \u00b7 ice ' + snap.ice + ' \u00b7 link ' + snap.conn;
   if (!rows.length) {
@@ -1980,18 +1999,25 @@ async function explainFailure() {
   const probed = !!snap && snap.rows.some(r => r.theirs > 0);
   const noRoutes = !!snap && !snap.rows.length;
   let msg, stale = false;
-  if (noRoutes && mine && theirs) {
-    /* Addresses on both sides and not one route tried. Whatever this is, it is
-       not packets going missing between the phones, because none were sent -
-       so it does not get the client-isolation speech. If the description was
-       one this phone rebuilt from a short code, that is the part of this app
-       most likely to be wrong, and the next code goes out whole. */
-    const retry = lastRemoteForm === 'S' || lastLocalForm === 'S';
-    if (retry) shortFormOk = false;
+  if (noRoutes && linkedOnce) {
+    /* This link was up and is gone, so the empty pair table is the repair's,
+       not the pairing's: an ICE restart throws the old routes away and waits
+       for new ones that only arrive if the other side is still listening.
+       Reporting that as "no route was ever tried" sent days of debugging at
+       the network, the codes and the camera, none of which were involved. */
+    msg = 'The link dropped and the repair found nobody \u2014 ' + (peerName || 'the other phone')
+        + ' has gone quiet. This is not a pairing fault: the two did link. '
+        + 'Pair again when they are back.';
+  } else if (noRoutes && mine && theirs) {
+    /* Addresses on both sides and not one route tried, and the two never
+       linked. Not packets going missing between the phones, because none were
+       sent - so it does not get the client-isolation speech either. The short
+       form used to be dropped here on the theory that a rebuilt description
+       was the likely culprit; it was not, and demoting the codes on a failure
+       they are measurably not part of only made the next report harder to
+       read. The check in packDesc proves the rebuilding on its own. */
     msg = 'No route \u2014 both phones put up an address and the browser tried '
-        + 'none of them. Nothing was sent, so nothing was lost on the way.'
-        + (retry ? ' The next code will carry the whole description instead of '
-                 + 'the short one. Tap Fresh code and pair again.' : '');
+        + 'none of them. Nothing was sent, so nothing was lost on the way.';
   } else if (!mine || !theirs) {
     msg = 'No route \u2014 one phone offered no address at all. Allow the microphone on both, then pair again.';
   } else if (/\.local$/i.test(mine) || /\.local$/i.test(theirs)) {
@@ -2660,6 +2686,7 @@ async function takeOffer(code) {
   newPeer();
   pc.ondatachannel = ev => wireChannel(ev.channel);
   await pc.setRemoteDescription({ type: 'offer', sdp });
+  await noteArrival(pc);
   micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
   preferOpus();
   await pc.setLocalDescription(await pc.createAnswer());
@@ -2681,6 +2708,7 @@ async function takeAnswer(code) {
   ui.scanHint.textContent = 'Linking up…';
   show('scan');
   await pc.setRemoteDescription({ type: 'answer', sdp });
+  await noteArrival(pc);
 }
 
 function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter) {

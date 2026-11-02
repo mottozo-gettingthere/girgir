@@ -519,6 +519,38 @@ before anything is awaited. A failure schedules a recovery two seconds later
 that replaces the live connection, and a report measuring whichever one
 happened to be there by then is worse than no report at all.
 
+### A dropped link is not a pairing that never happened
+
+The readout that finally said something useful said this:
+
+```
+  the browser is holding: 2 of your addresses, 0 of theirs
+  states: stable · gathering complete · ice disconnected · link failed
+```
+
+`disconnected` is the word that matters. ICE only reaches it from `connected`,
+so that link **was up**. And an ICE restart - which is what this app attempts
+when a link drops - throws the old routes away and waits for new ones, which
+only arrive if the other phone is still listening. An empty pair table is
+exactly what a repair looks like when nobody answers it.
+
+So for days the app reported *no route was ever tried* at a pair that had
+linked perfectly well and then lost each other, and that report sent the
+investigation at the network, the codes and the camera in turn, none of which
+were involved. The app already knew: `linkedOnce` is set the moment a
+connection completes, and the failure explanation never consulted it. It does
+now, and says the link dropped and the repair found nobody.
+
+The count is also taken **when the other side's code goes in**, not only at
+failure, because a description refused on arrival and one whose addresses were
+taken up and later discarded are different faults with the same face.
+
+And a no-route failure no longer demotes the short form. That was put in on the
+theory that a rebuilt description was the likely culprit; the field reports
+disproved it - the same failure arrives with whole codes in both directions -
+and demoting the codes only made the next report harder to read. The check in
+`packDesc` proves the rebuilding on its own, locally, every time.
+
 The client-isolation explanation is kept for the case it was written for:
 routes tried, checks sent, nothing answered. The last line names the build and
 which form each code took, because a mismatch there explains more failures than
