@@ -540,11 +540,12 @@ checks, cheapest first:
   description as a remote offer, which is the same parser that will read it on
   the other phone.
 
-Nothing there touches the network, asks for a permission, or outlives the call,
-and it costs nothing measurable: 302 ms from tapping *Create channel* to a code
-on screen, against 304 ms without it, because gathering addresses dominates.
-Any check that fails and the whole description is sent instead, for the rest of
-the session, with the reason printed in the readout.
+Nothing there touches the network, asks for a permission, or outlives the call.
+The throwaway peer is the only part with any cost worth measuring, and it is
+1.6 ms, 3.6 ms on the first call of the page, against the roughly 300 ms the
+phone spends gathering its addresses in the first place. Any check that fails
+and the whole description is sent instead, for the rest of the session, with
+the reason printed in the readout.
 
 Tested by sabotage: a single flipped byte in a port, an address, or the
 fingerprint, and a dropped candidate, are each caught. The byte comparison
