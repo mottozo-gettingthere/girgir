@@ -554,11 +554,24 @@ back the same wrong bytes, consistently - which is why the addresses and
 fingerprint are compared against the original text and not against a
 round trip.
 
-The first phone to run the check failed its own healthy code, and the check was
-wrong, not the code: it compared addresses across the whole description, where
-the browser gives each media section its own port for the same address while
-the rebuild repeats one set across both. A real difference, and not a fault.
-Only the first section's addresses are compared now, because only those travel.
+**What a code carries is now defined once**, in `carriedCands`, and both the
+packer and the check ask it. Letting them each have an opinion failed healthy
+codes twice:
+
+- The first reading compared addresses across the whole description, where the
+  browser gives each media section its own port for the same address while the
+  rebuild repeats one set across both.
+- The second compared every candidate in the first section - and Chrome offers
+  a TCP candidate on port 9, the discard port, which the packer is right to
+  drop (it needs a listening peer, and both ends here offer `tcptype active`,
+  which can never connect) and the check counted as an address lost.
+
+The second one shipped, and the readout caught it in the field in one
+screenshot: *short form dropped: 192.168.68.103:57768 192.168.68.103:9 became
+192.168.68.103:57768*. Every real device offers that port 9 candidate, so the
+check was quietly refusing every short code there was, and the codes went back
+to 824 characters with nothing visibly wrong. A diagnostic readout earns its
+keep in one line like that.
 
 ## Testing a phone on its own
 

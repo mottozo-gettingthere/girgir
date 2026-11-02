@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 29;
+const APP_VERSION = 30;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -265,6 +265,31 @@ Rdr.prototype.take = function (n) {
 };
 Rdr.prototype.str = function () { return new TextDecoder().decode(this.take(this.u8())); };
 
+/* Which candidates a code actually carries, and the only answer to that
+   question anywhere in this app. The packer uses it to decide what to write
+   and the self-check uses it to decide what must survive; when those two had
+   their own opinions, the check failed every healthy code on the first real
+   phone to run it, because Chrome offers a TCP candidate on port 9 that the
+   packer is right to drop and the check counted as damage.
+
+   Only the first section's candidates travel: once the two ends agree on
+   BUNDLE - and they always do, both being this app - everything rides on that
+   one transport and the rest are never used. Of those, only UDP, only the
+   first component, because a TCP candidate on the discard port needs a
+   listening peer that no phone here offers, and RTCP has its own component
+   only when rtcp-mux is off, which it never is. */
+function carriedCands(lines) {
+  const out = [];
+  lines.forEach(l => {
+    const c = /^a=candidate:\S+ (\d+) (udp|tcp) (\d+) (\S+) (\d+) typ (\w+)/i.exec(l);
+    if (!c) return;
+    if (c[6].toLowerCase() !== 'host') throw new Error('not a local candidate');
+    if (c[1] !== '1' || c[2].toLowerCase() !== 'udp') return;
+    out.push({ addr: c[4], port: +c[5] });
+  });
+  return out;
+}
+
 /* Candidate address kinds. An address is four bytes, sixteen bytes of UUID, a
    full IPv6 address, or - if it is none of those - the text as written. */
 const A4 = 0, AMDNS = 1, A6 = 2, ATXT = 3;
@@ -390,17 +415,7 @@ function packStruct(sdp) {
   const sl = attrOf(audio.lines, 'ssrc');
   if (sl) { const n = parseInt(sl, 10); if (n > 0) ssrc = n >>> 0; }
 
-  /* Only the first section's candidates travel. Once the two ends agree on
-     BUNDLE - and they always do, both being this app - everything rides on
-     that one transport and the rest are never used. */
-  const cands = [];
-  first.lines.forEach(l => {
-    const c = /^a=candidate:\S+ (\d+) (udp|tcp) (\d+) (\S+) (\d+) typ (\w+)/i.exec(l);
-    if (!c) return;
-    if (c[6].toLowerCase() !== 'host') throw new Error('not a local candidate');
-    if (c[1] !== '1' || c[2].toLowerCase() !== 'udp') return;   /* RTCP-only or TCP: no use to us */
-    cands.push({ addr: c[4], port: +c[5] });
-  });
+  const cands = carriedCands(first.lines);
   if (cands.length > 15) cands.length = 15;
 
   const buf = new Buf();
@@ -520,20 +535,21 @@ async function shortFormHolds(sdp, short) {
     if (again[i] !== short[i]) return 'bytes changed on the way through';
   }
 
-  /* Only the first section's addresses are compared, because only those
-     travel. The browser gives each section its own port for the same address
-     and the rebuild repeats one set across both - a real difference, and not
-     a fault, since everything rides on the first section's transport once the
-     two ends agree on BUNDLE. Comparing whole descriptions here failed a
-     perfectly good code on the first phone that tried it. */
-  const firstSection = t => {
+  /* Both sides of this comparison ask carriedCands what travels, so the check
+     can no longer disagree with the packer about what a code is meant to hold.
+     Two readings of that went out before this one: the whole description,
+     where each media section has its own port for the same address, and then
+     every candidate in the first section, which counted Chrome's TCP
+     candidate on port 9 as something lost. */
+  const firstLines = t => {
     const at = t.indexOf('\r\nm=');
-    if (at < 0) return t;
+    if (at < 0) return [];
     const rest = t.slice(at + 2), next = rest.indexOf('\r\nm=');
-    return next < 0 ? rest : rest.slice(0, next);
+    return (next < 0 ? rest : rest.slice(0, next)).split('\r\n');
   };
-  const was = sdpAddrs(firstSection(sdp)).join(' ');
-  const now = sdpAddrs(firstSection(rebuilt)).join(' ');
+  const show = cs => cs.map(c => c.addr + ':' + c.port).join(' ');
+  const was = show(carriedCands(firstLines(sdp)));
+  const now = show(carriedCands(firstLines(rebuilt)));
   if (was !== now) return 'addresses did not survive: ' + was + ' became ' + now;
 
   const fp = t => (/^a=fingerprint:(.+)$/m.exec(t) || [])[1];
