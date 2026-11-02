@@ -394,23 +394,32 @@ no sign anything was wrong.
 Android's `BarcodeDetector` is backed by a Play Services module fetched on
 demand. When that module is not on the phone the object still exists, still
 lists `qr_code` among its formats, still constructs, and then returns an empty
-array for every frame it is ever given. There is no error to catch and no way
-to tell "no code in this frame" from "this decoder is dead", so the app watches
-the clock instead: twenty barren frames and it stops believing the native
-decoder and switches to the bundled one.
+array for every frame it is ever given. There is no error to catch and nothing
+that tells "no code in this frame" apart from "this decoder is dead".
 
-That switch was written as `barren >= NATIVE_PATIENCE && window.jsQR`, which
-quietly required the backup to be loaded **already**. On the one phone that
-needed it — native decoder present, permanently empty, backup never downloaded
-because Android was assumed not to need it — the condition could never become
-true. The dead decoder was never retired, the backup was never reached, and the
-guard meant to rescue the scan was the thing preventing it. Two sensible
-decisions, each fine alone, that together made the failure permanent and
-silent.
+Two attempts to guess anyway both did damage, and the second broke a phone that
+had been working. The first retired the native decoder after twenty barren
+frames and handed the camera to the bundled one — but that flag is held for the
+life of the page, and twenty frames is **two seconds**, which is less than it
+takes to line up a shot and let the camera focus. So a phone that read codes
+perfectly would, the first time anyone was slow with it, permanently lose its
+good decoder for the slower one, on a 97-module code where that difference
+decides it. The second attempt made the swap happen even when the backup had
+not loaded, leaving no decoder at all. A guard written to rescue the scan was
+the thing breaking it.
 
-So: the backup is cached on every phone, the switch asks for it rather than
-assuming it, and a scan that finds nothing for 25 seconds now says so and
-points at the link, which needs no camera at all.
+The judgement was never answerable from the data, so it is no longer made.
+**Both decoders run**: the phone's own on every frame, the bundled one
+alongside it on a lighter cycle. A broken native decoder costs nothing, because
+the backup is already looking. A working one is never taken away. Measured: a
+healthy decoder reads a code on the first frame; a permanently dead one is
+covered by the backup in under a second; and a decoder that finds nothing for
+six seconds and then works is still being called, where the old code had
+stopped at frame twenty.
+
+The backup is cached on every phone, so this needs no network. A scan that
+finds nothing for 25 seconds says so and points at the link, which needs no
+camera at all.
 
 **diag.html** settles it on any phone in two seconds. *Test QR scanner* draws a
 clean code at the density a real pairing code reaches, hands it to the phone's
@@ -420,17 +429,25 @@ this fault, and the app will now handle it by itself.
 
 ## When one phone fails on every network
 
-A phone that will not pair on the home Wi-Fi, will not pair on a hotspot, and
-will not pair with anything else either is not being blocked by any of those
-networks. A hotspot has no router in it to misbehave. Whatever is swallowing
-the packets is travelling with the phone.
+**Check the scanner first.** A phone that cannot read a pairing code cannot
+pair on any network, and that looks exactly like a network fault from the
+outside — including on a hotspot. The section above covers it, and *diag.html →
+Test QR scanner* settles it in two seconds. Only once a phone is known to read
+codes is it worth suspecting the network at all.
+
+If it does read codes and still will not pair anywhere — home Wi-Fi, hotspot,
+anything — then no network is to blame, because a hotspot has no router in it
+to misbehave. Whatever is swallowing the packets is travelling with the phone.
 
 That is almost always an extra network interface. A VPN is the obvious one, and
 the one that catches people is **Samsung's "Secure Wi-Fi"**, which is a VPN
 wearing a name that does not sound like one and switches itself on per network.
 Mobile data left on alongside Wi-Fi does a milder version of the same thing.
 Any of them gives the phone an address that is not on the local network, and
-packets sent from it never arrive.
+packets sent from it never arrive. Nothing the page can do routes around a VPN
+that has claimed the default route — that is the one case where the app cannot
+help itself, and the routes it now prints will say so plainly rather than
+leaving it to be guessed.
 
 **diag.html → Test local address** now names every interface rather than
 printing bare numbers. A healthy phone shows one *Usable address* on

@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 25;
+const APP_VERSION = 26;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -89,7 +89,7 @@ let mode = 'hold', live = false, openMuted = false, remoteLive = false;
 let halfDuplex = true, rogerBeep = true, volume = 100, keepAwake = true;
 let handsFree = false;
 let actx = null, micAnalyser = null, remoteAnalyser = null, rafId = 0;
-let scanning = false, scanStream = null, jsqrLoad = null, nativeDead = false;
+let scanning = false, scanStream = null, jsqrLoad = null;
 let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
 let pingSeq = 0, duckTimer = 0, holdTimer = 0, alarmTimer = 0, urgentArmed = false;
 let helpReturn = 'setup', volumeWorks = false;
@@ -2323,18 +2323,21 @@ const SCAN_INTERVAL_MS = 100;
    fails silently and permanently, and the camera looks perfectly healthy
    while it happens.
 
-   Nothing tells an empty result apart from "no code in shot", so the only
-   safe reading is time: once the native decoder has had a good long look and
-   found nothing, stop believing it and hand the frames to jsQR instead.
+   Nothing tells an empty result apart from "no code in shot", and two attempts
+   to guess anyway both did damage. The first retired the native decoder after
+   twenty barren frames and handed the camera to jsQR - but `nativeDead` is held
+   for the life of the page, and twenty frames is two seconds, which is less time
+   than it takes to line up a shot and let the camera focus. So a phone that had
+   been reading codes perfectly would, the first time anyone was slow with it,
+   permanently lose its good decoder in favour of the slower one, on a 97-module
+   code where that difference decides it. The second attempt made the swap happen
+   even when the backup had not loaded, leaving no decoder at all.
 
-   That handover used to be written as `barren >= NATIVE_PATIENCE &&
-   window.jsQR`, which quietly required the backup to be loaded already. On
-   the one phone that needed it - native decoder present, permanently empty,
-   backup never downloaded - the condition was false for ever, so the dead
-   decoder was never retired and the backup was never reached. The camera ran
-   for days without decoding anything and without saying a word. The backup is
-   now precached, and asked for here rather than assumed. */
-const NATIVE_PATIENCE = 20;   /* frames at 100 ms, so about two seconds */
+   The judgement was never answerable from the data, so it is not made any more.
+   Both decoders run: the phone's own every frame, the backup alongside it on a
+   lighter cycle. A broken native decoder costs nothing because the backup is
+   already looking, and a working one is never taken away. */
+const JS_EVERY = 3;   /* backup frames while the native decoder is also running */
 
 /* However bad a decoder is, a scan that silently never ends is worse: there
    is always the link, and nothing was ever pointing at it. */
@@ -2344,8 +2347,8 @@ function runScanLoop(videoEl, detector, handler, filter) {
   const canvas = document.createElement('canvas');
   const g = canvas.getContext('2d', { willReadFrequently: true });
   let busy = false;
-  let det = nativeDead ? null : detector;
-  let barren = 0, hinted = false, noDecoder = false;
+  let det = detector;
+  let frame = 0, hinted = false, noDecoder = false, jsqrAsked = false;
   const startedAt = Date.now();
 
   const tick = async () => {
@@ -2361,28 +2364,31 @@ function runScanLoop(videoEl, detector, handler, filter) {
         g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2,
                     side, side, 0, 0, sz, sz);
         let text = null;
+        /* The phone's own decoder, every frame, for as long as the camera is
+           open. It is the faster of the two and on most phones the better one,
+           and nothing it does or fails to do takes it out of the loop. */
         if (det) {
-          let codes = null;
           try {
-            codes = await det.detect(canvas);
+            const codes = await det.detect(canvas);
+            if (codes && codes.length) text = codes[0].rawValue;
           } catch (e) {
-            /* A decoder that throws is as useless as one that says nothing. */
-            nativeDead = true;
+            /* Throwing is the one unambiguous failure, and even then only this
+               scan gives up on it. */
             det = null;
-          }
-          if (codes && codes.length) text = codes[0].rawValue;
-          else if (det && ++barren >= NATIVE_PATIENCE) {
-            nativeDead = true;
-            det = null;
-            if (window.jsQR) toast('Using the backup QR reader', 3000);
-            else loadJsQR().then(() => toast('Using the backup QR reader', 3000))
-                           .catch(() => { noDecoder = true; });
           }
         }
-        if (!text && !det && window.jsQR) {
+        /* The backup, alongside rather than instead. On a lighter duty cycle
+           while the native decoder is in play, because decoding a 760px frame
+           in script is not free, and every frame once it is the only one left. */
+        frame++;
+        if (!text && window.jsQR && (!det || frame % JS_EVERY === 0)) {
           const img = g.getImageData(0, 0, sz, sz);
           const found = jsQR(img.data, sz, sz, { inversionAttempts: 'dontInvert' });
           if (found) text = found.data;
+        }
+        if (!text && !window.jsQR && !jsqrAsked) {
+          jsqrAsked = true;
+          loadJsQR().catch(() => { noDecoder = true; });
         }
         if (text && text.startsWith(PROTO) && (!filter || filter(text))) {
           buzz(30);
