@@ -521,6 +521,44 @@ desktop Chrome will show you:
   leaving them out, so they are now repeated in both sections, as the browser
   itself repeats them. The bytes were already in hand, so the code did not grow.
 
+## The code proves itself before anyone sees it
+
+Rebuilding a description from ninety bytes is an optimisation this app performs
+on the browser's own work, and no phone should take it on trust. A description
+rebuilt wrongly produces a code that scans perfectly and then pairs with
+nothing, which is the most expensive failure there is - it looks exactly like a
+network fault, and it sent one debugging session after guest networks and VPNs
+for days.
+
+So every phone proves it on itself before the code reaches the screen. Three
+checks, cheapest first:
+
+- packing the rebuilt description again must give back the same bytes;
+- the addresses the code carries, and the fingerprint, must match the original
+  text exactly;
+- the browser must accept the result - a throwaway peer is handed the rebuilt
+  description as a remote offer, which is the same parser that will read it on
+  the other phone.
+
+Nothing there touches the network, asks for a permission, or outlives the call,
+and it costs nothing measurable: 302 ms from tapping *Create channel* to a code
+on screen, against 304 ms without it, because gathering addresses dominates.
+Any check that fails and the whole description is sent instead, for the rest of
+the session, with the reason printed in the readout.
+
+Tested by sabotage: a single flipped byte in a port, an address, or the
+fingerprint, and a dropped candidate, are each caught. The byte comparison
+alone catches none of them - re-packing a wrongly rebuilt description gives
+back the same wrong bytes, consistently - which is why the addresses and
+fingerprint are compared against the original text and not against a
+round trip.
+
+The first phone to run the check failed its own healthy code, and the check was
+wrong, not the code: it compared addresses across the whole description, where
+the browser gives each media section its own port for the same address while
+the rebuild repeats one set across both. A real difference, and not a fault.
+Only the first section's addresses are compared now, because only those travel.
+
 ## Testing a phone on its own
 
 *Test pairing on this phone* in **diag.html** pairs a phone with itself: two

@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 28;
+const APP_VERSION = 29;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -82,7 +82,7 @@ let lastOfferCode = '', linkedOnce = false;
    all is the one signature that would follow from a description this phone
    rebuilt wrongly, so the next code goes out whole rather than asking anyone
    to decide anything. */
-let lastRemoteForm = '', lastLocalForm = '', shortFormOk = true;
+let lastRemoteForm = '', lastLocalForm = '', shortFormOk = true, shortFormWhy = '';
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let bus = null;
 let route = 'earpiece';
@@ -497,12 +497,75 @@ function trimSdp(sdp) {
 /* A code is PROTO + role(O|A) + format + base64url payload, where the format
    is S for the short form, D or Z for the whole description compressed, and P
    for the whole description as it stands. */
+/* The short form is an optimisation this app performs on the browser's own
+   work, and a phone cannot be asked to take it on trust: a description
+   rebuilt wrongly produces a code that scans perfectly and then pairs with
+   nothing, which is the most expensive failure there is. So every phone
+   proves it on itself before the code goes on screen.
+
+   Three checks, in rising order of what they cost. Packing the rebuilt
+   description again must give back the same bytes, or something was lost on
+   the way through. The addresses and the fingerprint - the parts that have to
+   survive exactly or there is no connection - must match the original text.
+   And the browser itself must accept the result: a throwaway peer is handed
+   the rebuilt description as a remote offer, which is the same parser that
+   will read it on the other phone. Nothing here touches the network, asks for
+   a permission, or outlives the call. */
+async function shortFormHolds(sdp, short) {
+  const rebuilt = unpackStruct(short);
+
+  const again = packStruct(rebuilt);
+  if (again.length !== short.length) return 'bytes changed on the way through';
+  for (let i = 0; i < again.length; i++) {
+    if (again[i] !== short[i]) return 'bytes changed on the way through';
+  }
+
+  /* Only the first section's addresses are compared, because only those
+     travel. The browser gives each section its own port for the same address
+     and the rebuild repeats one set across both - a real difference, and not
+     a fault, since everything rides on the first section's transport once the
+     two ends agree on BUNDLE. Comparing whole descriptions here failed a
+     perfectly good code on the first phone that tried it. */
+  const firstSection = t => {
+    const at = t.indexOf('\r\nm=');
+    if (at < 0) return t;
+    const rest = t.slice(at + 2), next = rest.indexOf('\r\nm=');
+    return next < 0 ? rest : rest.slice(0, next);
+  };
+  const was = sdpAddrs(firstSection(sdp)).join(' ');
+  const now = sdpAddrs(firstSection(rebuilt)).join(' ');
+  if (was !== now) return 'addresses did not survive: ' + was + ' became ' + now;
+
+  const fp = t => (/^a=fingerprint:(.+)$/m.exec(t) || [])[1];
+  if (fp(sdp) !== fp(rebuilt)) return 'the fingerprint did not survive';
+
+  /* An answer cannot be applied to a bare peer, but its text parses by the
+     same rules, so it is offered up as one. Only the parse is being tested. */
+  const probe = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
+  try {
+    await probe.setRemoteDescription({
+      type: 'offer', sdp: rebuilt.replace(/^a=setup:.*$/gm, 'a=setup:actpass')
+    });
+  } catch (e) {
+    return 'this browser will not read it back: ' + (e && e.message || e);
+  } finally {
+    try { probe.close(); } catch (e) {}
+  }
+  return '';
+}
+
 async function packDesc(role, sdp) {
   if (shortFormOk) {
     try {
-      const short = PROTO + role + 'S' + b64u(packStruct(sdp));
-      lastLocalForm = 'S';
-      return short;
+      const short = packStruct(sdp);
+      const wrong = await shortFormHolds(sdp, short);
+      if (wrong) {
+        shortFormOk = false;
+        shortFormWhy = wrong;
+      } else {
+        lastLocalForm = 'S';
+        return PROTO + role + 'S' + b64u(short);
+      }
     } catch (e) { /* something unexpected in the description: send the whole thing */ }
   }
   lastLocalForm = 'D';
@@ -1723,7 +1786,8 @@ async function pairRows() {
 
 function footer() {
   return '\n\nGirgir ' + APP_VERSION + ' \u00b7 your code ' + formName(lastLocalForm)
-    + ', theirs ' + formName(lastRemoteForm);
+    + ', theirs ' + formName(lastRemoteForm)
+    + (shortFormWhy ? '\nShort form dropped: ' + shortFormWhy : '');
 }
 
 function formatPairs(rows) {
