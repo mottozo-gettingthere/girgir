@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 26;
+const APP_VERSION = 27;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -198,6 +198,270 @@ async function expand(bytes, format) {
   return new Uint8Array(await new Response(ds.readable).arrayBuffer());
 }
 
+/* ---------------- the short form ----------------
+
+   A full session description is around 1.7 kB of text, and almost all of it is
+   the same on every phone in the world: the codec line, the bundle group, the
+   SCTP port. Only a handful of fields actually differ - the ICE user and
+   password, the DTLS fingerprint, the addresses, a payload number. Those come
+   to about ninety bytes.
+
+   So the short form carries only those, as bytes, and both phones rebuild the
+   rest from a template they already share. The code goes from roughly 820
+   characters to roughly 125, which is the difference between a 97-module QR
+   and a 45-module one - the whole reason for doing it.
+
+   Anything unexpected in the description (a second codec, a relayed
+   candidate, a fingerprint that is not sha-256) and packing gives up, and the
+   caller falls back to sending the whole text compressed, as before. */
+
+const SETUPS = ['actpass', 'active', 'passive', 'holdconn'];
+const DIRS = ['sendrecv', 'sendonly', 'recvonly', 'inactive'];
+const MAX_MSG = 65536;   /* we only ever send a few bytes of control JSON */
+
+function sdpSections(sdp) {
+  const head = [], secs = [];
+  let cur = null;
+  sdp.replace(/\r\n/g, '\n').split('\n').forEach(l => {
+    if (!l) return;
+    if (l.slice(0, 2) === 'm=') { cur = { m: l.slice(2), lines: [] }; secs.push(cur); }
+    else if (cur) cur.lines.push(l);
+    else head.push(l);
+  });
+  return { head, secs };
+}
+function attrOf(lines, name) {
+  const p = 'a=' + name + ':';
+  for (let i = 0; i < lines.length; i++) if (lines[i].slice(0, p.length) === p) return lines[i].slice(p.length);
+  return null;
+}
+function hasFlag(lines, name) {
+  return lines.indexOf('a=' + name) >= 0;
+}
+
+/* Writing bytes into a growing array keeps the layout readable; the whole
+   thing is under a hundred bytes, so the copying costs nothing. */
+function Buf() { this.b = []; }
+Buf.prototype.u8 = function (n) { this.b.push(n & 255); return this; };
+Buf.prototype.u16 = function (n) { this.b.push((n >> 8) & 255, n & 255); return this; };
+Buf.prototype.u32 = function (n) { this.b.push((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255); return this; };
+Buf.prototype.bytes = function (a) { for (let i = 0; i < a.length; i++) this.b.push(a[i] & 255); return this; };
+Buf.prototype.str = function (s) { const e = new TextEncoder().encode(s); return this.u8(e.length).bytes(e); };
+Buf.prototype.out = function () { return new Uint8Array(this.b); };
+
+function Rdr(bytes) { this.a = bytes; this.i = 0; }
+Rdr.prototype.u8 = function () { if (this.i >= this.a.length) throw new Error('short code'); return this.a[this.i++]; };
+Rdr.prototype.u16 = function () { return (this.u8() << 8) | this.u8(); };
+Rdr.prototype.u32 = function () { return ((this.u8() << 24) | (this.u8() << 16) | (this.u8() << 8) | this.u8()) >>> 0; };
+Rdr.prototype.take = function (n) {
+  if (this.i + n > this.a.length) throw new Error('short code');
+  const s = this.a.subarray(this.i, this.i + n); this.i += n; return s;
+};
+Rdr.prototype.str = function () { return new TextDecoder().decode(this.take(this.u8())); };
+
+/* Candidate address kinds. An address is four bytes, sixteen bytes of UUID, a
+   full IPv6 address, or - if it is none of those - the text as written. */
+const A4 = 0, AMDNS = 1, A6 = 2, ATXT = 3;
+
+/* An IPv6 address is sixteen bytes however it is written, and a phone on an
+   IPv6 network offers two or three of them, so it is worth unpicking the
+   shorthand rather than carrying the text. */
+function ip6Bytes(addr) {
+  if (addr.indexOf(':') < 0 || /[^0-9a-f:.]/i.test(addr)) return null;
+  const halves = addr.split('::');
+  if (halves.length > 2) return null;
+  const grow = part => {
+    if (!part) return [];
+    const out = [];
+    for (const g of part.split(':')) {
+      if (g.indexOf('.') >= 0) {
+        const q = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(g);
+        if (!q) return null;
+        const o = q.slice(1).map(Number);
+        if (o.some(n => n > 255)) return null;
+        out.push((o[0] << 8) | o[1], (o[2] << 8) | o[3]);
+      } else {
+        if (!/^[0-9a-f]{1,4}$/i.test(g)) return null;
+        out.push(parseInt(g, 16));
+      }
+    }
+    return out;
+  };
+  const head = grow(halves[0]), tail = halves.length > 1 ? grow(halves[1]) : [];
+  if (!head || !tail) return null;
+  let groups;
+  if (halves.length > 1) {
+    const gap = 8 - head.length - tail.length;
+    if (gap < 1) return null;
+    groups = head.concat(new Array(gap).fill(0), tail);
+  } else groups = head;
+  if (groups.length !== 8) return null;
+  const b = [];
+  groups.forEach(g => b.push((g >> 8) & 255, g & 255));
+  return b;
+}
+function ip6Text(b) {
+  const g = [];
+  for (let i = 0; i < 16; i += 2) g.push(((b[i] << 8) | b[i + 1]).toString(16));
+  /* Collapse the longest run of zero groups, the way every tool writes it. */
+  let best = -1, bestLen = 0, run = -1, len = 0;
+  for (let i = 0; i <= 8; i++) {
+    if (i < 8 && g[i] === '0') { if (run < 0) run = i; len++; }
+    else { if (len > bestLen) { bestLen = len; best = run; } run = -1; len = 0; }
+  }
+  if (bestLen < 2) return g.join(':');
+  return (g.slice(0, best).join(':') + '::' + g.slice(best + bestLen).join(':'));
+}
+
+function packAddr(buf, addr) {
+  let m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(addr);
+  if (m) {
+    const o = [+m[1], +m[2], +m[3], +m[4]];
+    if (o.every(n => n >= 0 && n <= 255)) return buf.u8(A4).bytes(o), A4;
+  }
+  m = /^([0-9a-f]{8})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{4})-([0-9a-f]{12})\.local$/i.exec(addr);
+  if (m) {
+    const hex = m.slice(1).join(''), o = [];
+    for (let i = 0; i < 32; i += 2) o.push(parseInt(hex.slice(i, i + 2), 16));
+    return buf.u8(AMDNS).bytes(o), AMDNS;
+  }
+  const six = ip6Bytes(addr);
+  if (six) return buf.u8(A6).bytes(six), A6;
+  buf.u8(ATXT).str(addr);
+  return ATXT;
+}
+function readAddr(r) {
+  const kind = r.u8();
+  if (kind === A4) { const b = r.take(4); return b[0] + '.' + b[1] + '.' + b[2] + '.' + b[3]; }
+  if (kind === AMDNS) {
+    const b = r.take(16); let h = '';
+    for (let i = 0; i < 16; i++) h += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' +
+           h.slice(16, 20) + '-' + h.slice(20) + '.local';
+  }
+  if (kind === A6) return ip6Text(r.take(16));
+  return r.str();
+}
+
+/* ---- pack ---- */
+
+function packStruct(sdp) {
+  const { secs } = sdpSections(sdp);
+  if (!secs.length || secs.length > 2) throw new Error('unexpected media layout');
+
+  let audio = null, data = null;
+  secs.forEach((s, i) => {
+    const mid = attrOf(s.lines, 'mid');
+    if (mid !== String(i)) throw new Error('unexpected mid');
+    if (/^audio /.test(s.m)) audio = s;
+    else if (/^application /.test(s.m)) data = s;
+    else throw new Error('unexpected media kind');
+  });
+  if (!audio) throw new Error('no audio');
+
+  const first = secs[0];
+  const ufrag = attrOf(first.lines, 'ice-ufrag');
+  const pwd = attrOf(first.lines, 'ice-pwd');
+  const setup = attrOf(first.lines, 'setup');
+  const fp = attrOf(first.lines, 'fingerprint');
+  if (!ufrag || !pwd || !fp || SETUPS.indexOf(setup) < 0) throw new Error('missing ICE parts');
+  if (ufrag.length > 255 || pwd.length > 255) throw new Error('ICE parts too long');
+
+  const fm = /^sha-256 ((?:[0-9a-f]{2}:){31}[0-9a-f]{2})$/i.exec(fp);
+  if (!fm) throw new Error('fingerprint is not sha-256');
+  const fpb = fm[1].split(':').map(h => parseInt(h, 16));
+
+  const mp = /^audio \d+ UDP\/TLS\/RTP\/SAVPF (\d+)$/.exec(audio.m);
+  if (!mp) throw new Error('more than one codec offered');
+  const pt = +mp[1];
+  if (attrOf(audio.lines, 'rtpmap') !== pt + ' opus/48000/2') throw new Error('codec is not opus');
+  if (!hasFlag(audio.lines, 'rtcp-mux')) throw new Error('no rtcp-mux');
+
+  const dir = DIRS.findIndex(d => hasFlag(audio.lines, d));
+  if (dir < 0) throw new Error('no direction');
+
+  let ssrc = 0;
+  const sl = attrOf(audio.lines, 'ssrc');
+  if (sl) { const n = parseInt(sl, 10); if (n > 0) ssrc = n >>> 0; }
+
+  /* Only the first section's candidates travel. Once the two ends agree on
+     BUNDLE - and they always do, both being this app - everything rides on
+     that one transport and the rest are never used. */
+  const cands = [];
+  first.lines.forEach(l => {
+    const c = /^a=candidate:\S+ (\d+) (udp|tcp) (\d+) (\S+) (\d+) typ (\w+)/i.exec(l);
+    if (!c) return;
+    if (c[6].toLowerCase() !== 'host') throw new Error('not a local candidate');
+    if (c[1] !== '1' || c[2].toLowerCase() !== 'udp') return;   /* RTCP-only or TCP: no use to us */
+    cands.push({ addr: c[4], port: +c[5] });
+  });
+  if (cands.length > 15) cands.length = 15;
+
+  const buf = new Buf();
+  buf.u8(1);
+  buf.u8((SETUPS.indexOf(setup) & 3) | ((dir & 3) << 2) | (data ? 16 : 0));
+  buf.u8(pt);
+  buf.str(ufrag);
+  buf.str(pwd);
+  buf.bytes(fpb);
+  buf.u32(ssrc);
+  buf.u8(cands.length);
+  cands.forEach(c => { packAddr(buf, c.addr); buf.u16(c.port); });
+  return buf.out();
+}
+
+/* ---- rebuild ---- */
+
+function hex2(n) { return (n < 16 ? '0' : '') + n.toString(16).toUpperCase(); }
+
+function unpackStruct(bytes) {
+  const r = new Rdr(bytes);
+  if (r.u8() !== 1) throw new Error('newer code');
+  const flags = r.u8();
+  const setup = SETUPS[flags & 3], dir = DIRS[(flags >> 2) & 3], hasData = !!(flags & 16);
+  const pt = r.u8();
+  const ufrag = r.str(), pwd = r.str();
+  const fpb = r.take(32);
+  const ssrc = r.u32();
+  const n = r.u8(), cands = [];
+  for (let i = 0; i < n; i++) { const addr = readAddr(r); cands.push({ addr: addr, port: r.u16() }); }
+
+  let fp = '';
+  for (let i = 0; i < 32; i++) fp += (i ? ':' : '') + hex2(fpb[i]);
+
+  const cname = 'g' + (ssrc || 1).toString(36);
+  const candLines = cands.map((c, i) =>
+    'a=candidate:' + (i + 1) + ' 1 udp ' + (2113937151 - i) + ' ' + c.addr + ' ' + c.port +
+    ' typ host generation 0');
+
+  const ice = [
+    'a=ice-ufrag:' + ufrag,
+    'a=ice-pwd:' + pwd,
+    'a=ice-options:trickle',
+    'a=fingerprint:sha-256 ' + fp,
+    'a=setup:' + setup
+  ];
+
+  const L = ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0',
+             'a=group:BUNDLE' + (hasData ? ' 0 1' : ' 0'),
+             'a=msid-semantic: WMS gs'];
+
+  L.push('m=audio 9 UDP/TLS/RTP/SAVPF ' + pt, 'c=IN IP4 0.0.0.0', 'a=rtcp:9 IN IP4 0.0.0.0');
+  candLines.forEach(l => L.push(l));
+  ice.forEach(l => L.push(l));
+  L.push('a=mid:0', 'a=' + dir, 'a=msid:gs gt', 'a=rtcp-mux',
+         'a=rtpmap:' + pt + ' opus/48000/2',
+         'a=fmtp:' + pt + ' minptime=10;useinbandfec=1');
+  if (ssrc) L.push('a=ssrc:' + ssrc + ' cname:' + cname, 'a=ssrc:' + ssrc + ' msid:gs gt');
+
+  if (hasData) {
+    L.push('m=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0');
+    ice.forEach(l => L.push(l));
+    L.push('a=mid:1', 'a=sctp-port:5000', 'a=max-message-size:' + MAX_MSG);
+  }
+  return L.join('\r\n') + '\r\n';
+}
+
 /* Header extensions and congestion feedback are optional on a LAN, and dropping
    them takes the QR down about three versions, which matters when one phone
    has to read the code off another phone's screen. */
@@ -207,8 +471,12 @@ function trimSdp(sdp) {
     .join('\r\n');
 }
 
-/* A code is PROTO + role(O|A) + format(D|Z|P) + base64url payload. */
+/* A code is PROTO + role(O|A) + format + base64url payload, where the format
+   is S for the short form, D or Z for the whole description compressed, and P
+   for the whole description as it stands. */
 async function packDesc(role, sdp) {
+  try { return PROTO + role + 'S' + b64u(packStruct(sdp)); }
+  catch (e) { /* something unexpected in the description: send the whole thing */ }
   const bytes = new TextEncoder().encode(trimSdp(sdp));
   for (const tag of ['D', 'Z']) {
     try { return PROTO + role + tag + b64u(await squeeze(bytes, FORMATS[tag])); }
@@ -221,10 +489,12 @@ async function unpackDesc(code) {
   const text = String(code).trim();
   if (!text.startsWith(PROTO)) throw new Error('That is not a Girgir code.');
   const role = text[2], tag = text[3];
-  const payload = unb64u(text.slice(4));
   if (role !== 'O' && role !== 'A') throw new Error('That code is malformed.');
-  const bytes = tag === 'P' ? payload : await expand(payload, FORMATS[tag]);
-  return { role, sdp: new TextDecoder().decode(bytes) };
+  const payload = unb64u(text.slice(4));
+  if (tag === 'S') return { role, sdp: unpackStruct(payload) };
+  if (tag === 'P') return { role, sdp: new TextDecoder().decode(payload) };
+  if (!FORMATS[tag]) throw new Error('That code came from a newer Girgir than this one. Update this phone.');
+  return { role, sdp: new TextDecoder().decode(await expand(payload, FORMATS[tag])) };
 }
 
 /* ---------------- audio ---------------- */
@@ -2229,7 +2499,11 @@ function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter
 }
 
 function drawQR(text, canvas) {
-  const qr = qrcode(0, 'L');
+  /* A short code has room to spare, so it gets the strong error correction:
+     53 modules instead of 41, but a quarter of the code can be lost to glare,
+     a scratch or a thumb and it still reads. A long fallback code cannot
+     afford that and stays on the light level. */
+  const qr = qrcode(0, text.length <= 300 ? 'Q' : 'L');
   qr.addData(text, 'Byte');
   qr.make();
   const n = qr.getModuleCount();

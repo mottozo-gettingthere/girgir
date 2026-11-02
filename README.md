@@ -385,6 +385,54 @@ The decode loop runs on a timer rather than `requestAnimationFrame`, because
 rAF stops whenever the page is not being painted, which would freeze scanning
 without any sign of it.
 
+## What is actually in a code, and why it got six times smaller
+
+A session description is about 1.7 kB of text, and almost none of it varies.
+The codec line, the bundle group, the SCTP port, the transport profile - every
+phone running this app writes them identically. What actually differs comes to
+roughly ninety bytes: an ICE user and password, a DTLS fingerprint, one or two
+addresses and ports, a payload number, which side goes first.
+
+So that is all a code carries. The two phones rebuild the rest from a template
+they both already hold. A pairing code went from **824 characters to 123**, and
+the QR from **97 modules to 53**.
+
+That is worth more than it sounds, because a QR is read in modules, not
+pixels. In a 760-pixel camera frame with the code filling it:
+
+| | old | new |
+|---|---|---|
+| modules | 97 | 53 |
+| pixels per module | 5.5 | 10.0 |
+| still reads through a blur of | 2 px | 4 px |
+| still reads when the code fills only | 36% of the frame | 10% of the frame |
+| still reads with a glare patch over | 6% of it | 15% of it |
+
+The last row is the error correction, which the spare room paid for: short
+codes are drawn at level Q, which can lose a quarter of itself, where the old
+ones were at level L and could lose a fifteenth. A long code still uses L,
+because at that length the strong level would push it to 129 modules and make
+everything worse.
+
+One measurement went the other way and is worth writing down. Against
+*per-pixel* noise - every pixel jittered independently - the small code is
+clearly worse: 1 read in 8 where the old one managed 6. It is not the error
+correction, since a 41-module version at level L fails identically; it is the
+module size. The bundled decoder thresholds each 8x8 block of pixels against
+its own local average, and once a module is wider than that block the average
+is simply the module's own colour, so the threshold sits on top of the signal
+and noise tips it either way. Real camera noise is not per-pixel - it is
+smeared by the lens and the demosaic - and against grainy noise the small code
+wins or ties. But the mechanism is real, and a sharp, very noisy frame is the
+one case where the old codes read better.
+
+Anything unexpected in the description - a second codec offered, a relayed
+candidate, a fingerprint that is not sha-256 - and the short form gives up and
+the whole description is sent compressed, as before. Both forms are understood
+on the way in, so the fallback costs nothing but size. A code from a newer
+version reaching an older phone is the one thing that does not work, and it
+says so: *that code came from a newer Girgir than this one.*
+
 ## When a phone will not scan
 
 One handset read nothing for days. The camera was up, the preview was sharp,

@@ -149,11 +149,11 @@ document.getElementById('bMic').onclick = async () => {
    a decode is the decoder's fault, not the camera's. */
 document.getElementById('bScan').onclick = async () => {
   live.innerHTML = '';
-  const SAMPLE = 'E1O' + 'TEST'.repeat(200);
+  const SAMPLE = 'E1OS' + 'A1b2C3-_x'.repeat(14).slice(0, 119);
 
   let canvas = null;
   try {
-    const qr = qrcode(0, 'L');
+    const qr = qrcode(0, 'Q');
     qr.addData(SAMPLE, 'Byte');
     qr.make();
     const n = qr.getModuleCount(), quiet = 4, sc = Math.floor(900 / (n + quiet * 2));
