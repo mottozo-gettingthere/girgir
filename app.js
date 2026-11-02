@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 24;
+const APP_VERSION = 25;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -1361,6 +1361,71 @@ function showNet(a, b) {
    climbs normally and proves nothing. Measured on two peers in one browser:
    reply scanned, requestsReceived 6; reply ignored, requestsReceived 0 while
    responsesReceived still reached 6. */
+/* What the two phones actually tried, and what came back from each attempt.
+
+   Every message this screen can show is a summary, and a summary is exactly
+   what stops being believable once it has been wrong. A phone that fails on
+   its home Wi-Fi, on a hotspot and on everything else is not being blocked by
+   any of them, and no worded guess will say which interface is swallowing the
+   packets - the pairs will. Nothing here is stored: it is read from the live
+   connection when the screen is drawn and goes when the page does. */
+async function pairReport() {
+  if (!pc || !pc.getStats) return '';
+  const cands = new Map(), rows = [];
+  let report;
+  try { report = await pc.getStats(); } catch (e) { return ''; }
+  report.forEach(r => {
+    if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands.set(r.id, r);
+  });
+  /* getStats blanks candidate addresses until the microphone is allowed, the
+     same trap pollStats works around: the descriptions carry the addresses, so
+     fall back to those rather than printing a row of question marks. */
+  const myHost = sdpHost(pc.localDescription && pc.localDescription.sdp);
+  const theirHost = sdpHost(pc.remoteDescription && pc.remoteDescription.sdp);
+  report.forEach(r => {
+    if (r.type !== 'candidate-pair') return;
+    const l = cands.get(r.localCandidateId), m = cands.get(r.remoteCandidateId);
+    const side = (c, fallback) => c
+      ? ((c.address || fallback || 'address hidden') + ':' + (c.port || '?')
+         + (c.candidateType && c.candidateType !== 'host' ? ' ' + c.candidateType : ''))
+      : (fallback || '?');
+    rows.push({
+      line: side(l, myHost) + '  \u2192  ' + side(m, theirHost),
+      state: r.state || '?',
+      sent: r.requestsSent || 0,
+      back: r.responsesReceived || 0,
+      theirs: r.requestsReceived || 0,
+      sel: !!(r.nominated || r.selected)
+    });
+  });
+  if (!rows.length) return 'No routes were tried at all \u2014 the two codes never produced a pair.';
+  rows.sort((a, b) => (b.sel - a.sel) || (b.back - a.back) || (b.sent - a.sent));
+  const body = rows.map(r => (r.sel ? '\u2022 ' : '  ') + r.line + '\n    '
+    + r.state + ' \u00b7 sent ' + r.sent + ' \u00b7 answered ' + r.back
+    + ' \u00b7 their checks ' + r.theirs).join('\n');
+  const mute = rows.every(r => r.back === 0);
+  return body + '\n\n' + (mute
+    ? 'Nothing answered on any route. Both phones are talking and neither is '
+      + 'hearing, which is a VPN, Samsung Secure Wi-Fi, or client isolation '
+      + 'on the network \u2014 and a phone that does this on a hotspot too has it '
+      + 'on the phone, not the network.'
+    : 'At least one route answered, so the two phones can reach each other.');
+}
+
+/* Appended next to whatever the screen already says, rather than replacing it. */
+async function showPairs(hintEl) {
+  if (!hintEl || !hintEl.parentNode) return;
+  let pre = hintEl.parentNode.querySelector('pre.pairs');
+  if (!pre) {
+    pre = document.createElement('pre');
+    pre.className = 'pairs';
+    hintEl.parentNode.insertBefore(pre, hintEl.nextSibling);
+  }
+  const txt = await pairReport();
+  pre.textContent = txt;
+  pre.hidden = !txt;
+}
+
 async function peerEverProbed() {
   if (!pc || !pc.getStats) return false;
   try {
@@ -1400,8 +1465,11 @@ function showStale(theirs, hard) {
   toast(msg, hard ? 12000 : 8000);
   if (hard) setPill('lost', 'NOT SCANNED');
   const step = hard ? 'CODE EXPIRED' : 'NOT SCANNED YET';
-  if (!ui.views.code.hidden) { ui.codeStep.textContent = step; ui.codeHint.textContent = msg; }
-  else if (!ui.views.scan.hidden) { ui.scanStep.textContent = step; ui.scanHint.textContent = msg; }
+  if (!ui.views.code.hidden) {
+    ui.codeStep.textContent = step; ui.codeHint.textContent = msg; showPairs(ui.codeHint);
+  } else if (!ui.views.scan.hidden) {
+    ui.scanStep.textContent = step; ui.scanHint.textContent = msg; showPairs(ui.scanHint);
+  }
   /* Only offered once the old code is genuinely dead. Replacing a working one
      invalidates the very code the other phone may be lining up on. */
   if (hard && lastOfferCode) {
@@ -1477,10 +1545,12 @@ async function explainFailure() {
   if (!ui.views.scan.hidden) {
     ui.scanStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.scanHint.textContent = msg;
+    showPairs(ui.scanHint);
   }
   if (!ui.views.code.hidden) {
     ui.codeStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.codeHint.textContent = msg;
+    showPairs(ui.codeHint);
     if (stale) showStale(theirs, true);
   }
   return msg;

@@ -418,6 +418,41 @@ own reader and then to the backup, and tells you which of them can actually
 read it. A phone that fails the first line and passes the second has exactly
 this fault, and the app will now handle it by itself.
 
+## When one phone fails on every network
+
+A phone that will not pair on the home Wi-Fi, will not pair on a hotspot, and
+will not pair with anything else either is not being blocked by any of those
+networks. A hotspot has no router in it to misbehave. Whatever is swallowing
+the packets is travelling with the phone.
+
+That is almost always an extra network interface. A VPN is the obvious one, and
+the one that catches people is **Samsung's "Secure Wi-Fi"**, which is a VPN
+wearing a name that does not sound like one and switches itself on per network.
+Mobile data left on alongside Wi-Fi does a milder version of the same thing.
+Any of them gives the phone an address that is not on the local network, and
+packets sent from it never arrive.
+
+**diag.html → Test local address** now names every interface rather than
+printing bare numbers. A healthy phone shows one *Usable address* on
+192.168.x.x or 10.x.x.x. Anything reported as an **Extra interface** — a public
+address, a carrier-NAT address, a VPN range — should not be there while you are
+pairing over Wi-Fi. Turn those off and run it again; they should disappear.
+
+A failed pairing in the app now shows the routes themselves, under the
+message:
+
+```
+• 192.168.68.100:54321  →  192.168.68.108:49152
+    failed · sent 23 · answered 0 · their checks 0
+```
+
+Three numbers per route, and they divide the problem cleanly. **answered 0 on
+every route** means both phones are talking and neither is hearing — a VPN,
+Secure Wi-Fi, or client isolation. **answered, but their checks 0** means the
+route works and the other phone simply has not taken your code up yet. Nothing
+is stored: it is read from the live connection as the screen is drawn and goes
+when the page does.
+
 ## If the link drops
 
 There are two different situations here and they cost very different amounts

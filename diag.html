@@ -253,16 +253,58 @@ document.getElementById('bNet').onclick = async () => {
                    : 'none at all \u2014 nothing for the other phone to connect to', live);
 
   const addrs = hosts.map(c => c.addr).filter((a, i, all) => all.indexOf(a) === i);
-  const hidden = addrs.filter(a => /\.local$/i.test(a));
-  const real = addrs.filter(a => !/\.local$/i.test(a));
+  if (!addrs.length) { row('Address offered', false, 'no host candidate', live); pc.close(); return; }
 
-  hidden.forEach(a => row('Address hidden', 'mDNS',
-      a + ' \u2014 the other phone must resolve this name, and many networks will not let it', live));
-  real.forEach(a => row('Address offered', a,
-      'compare with the other phone: the first three numbers must match', live));
-  if (!addrs.length) row('Address offered', false, 'no host candidate', live);
+  addrs.forEach(a => {
+    const k = classify(a);
+    const name = k[0] === 'lan' ? 'Usable address'
+      : k[0] === 'hidden' ? 'Address hidden'
+      : k[0] === 'ipv6ll' || k[0] === 'ipv6ula' || k[0] === 'ipv6' ? 'IPv6 address'
+      : 'Extra interface';
+    row(name, k[0] === 'hidden' ? 'mDNS' : a, k[1], live);
+  });
+
+  /* A phone that fails on every network, a hotspot included, is not being
+     blocked by any of them - something on the phone is answering for the
+     network instead. That shows up here as an interface that has no business
+     being in the list. A VPN is the usual one, and on Samsung handsets
+     "Secure Wi-Fi" is a VPN under a name that does not sound like one. */
+  const lan = addrs.filter(a => classify(a)[0] === 'lan');
+  const odd = addrs.filter(a => ['public', 'cgnat', 'vpn'].includes(classify(a)[0]));
+
+  if (odd.length) {
+    row('Something else is on this phone', false,
+        odd.join(', ') + ' \u2014 a VPN, Samsung Secure Wi-Fi, or mobile data left on. '
+        + 'Turn those off and run this again: these should disappear.', live);
+  }
+  const hiddenCount = addrs.filter(a => classify(a)[0] === 'hidden').length;
+  if (!lan.length && !hiddenCount) {
+    row('No local address at all', false,
+        'nothing here can reach another phone on the same Wi-Fi', live);
+  } else if (lan.length > 1) {
+    row('More than one local address', String(lan.length),
+        lan.join(', ') + ' \u2014 the other phone may try the wrong one first', live);
+  }
   pc.close();
 };
+
+/* Names each address rather than printing a bare number at someone. */
+function classify(a) {
+  if (/\.local$/i.test(a)) return ['hidden', 'hidden behind an mDNS name \u2014 allow the microphone, then retest'];
+  if (a.indexOf(':') >= 0) {
+    if (/^fe80:/i.test(a)) return ['ipv6ll', 'IPv6, link-local only'];
+    if (/^(fc|fd)/i.test(a)) return ['ipv6ula', 'IPv6, private range'];
+    return ['ipv6', 'IPv6, globally routable'];
+  }
+  const p = a.split('.').map(Number);
+  if (p[0] === 192 && p[1] === 168) return ['lan', 'home or hotspot network'];
+  if (p[0] === 10) return ['lan', 'private network'];
+  if (p[0] === 172 && p[1] >= 16 && p[1] <= 31) return ['lan', 'private network'];
+  if (p[0] === 169 && p[1] === 254) return ['selfassigned', 'self-assigned \u2014 this phone got no address'];
+  if (p[0] === 100 && p[1] >= 64 && p[1] <= 127) return ['cgnat', 'carrier NAT, or a VPN such as Tailscale'];
+  if (p[0] === 25) return ['vpn', 'a VPN range'];
+  return ['public', 'a public address \u2014 mobile data, or a VPN'];
+}
 
 document.getElementById('bBuzz').onclick = () => {
   live.innerHTML = '';

@@ -679,3 +679,21 @@ body {
 }
 .drill-feedback.good { color: var(--rx); }
 .drill-feedback.bad { color: var(--bad); }
+
+/* The candidate-pair readout on a failed pairing. Small, scrollable and plain:
+   it is meant to be screenshotted and read, not styled. */
+.pairs {
+  margin: 12px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 46vh;
+  overflow-y: auto;
+}
