@@ -551,6 +551,33 @@ disproved it - the same failure arrives with whole codes in both directions -
 and demoting the codes only made the next report harder to read. The check in
 `packDesc` proves the rebuilding on its own, locally, every time.
 
+### Two states that are not the same state
+
+Both ends of one failed attempt reported `ice disconnected`, and ICE only
+reaches that from `connected`. So the two phones **had** found each other and
+were exchanging checks. What never happened was the encryption handshake on
+top, which is a separate thing with its own state, and which nothing in this
+app had ever looked at.
+
+That distinction is the whole of the confusion. `connectionState` only reaches
+`connected` once the handshake finishes, and the failure explanation keyed off
+that alone - so a pair that reached each other perfectly and then failed to
+agree on encryption was told *no route was ever tried*, which is the opposite
+of what happened. ICE coming up is now tracked in its own right, and the
+encryption state is printed:
+
+```
+  encryption: never started
+```
+
+The counts also disagreed across the two phones in a way that turned out to be
+my own measuring: the offerer reported two of their addresses taken up on
+arrival, the answerer nought. The answerer was counting straight after the
+other side's code went in - before it had a local description, and so before
+the transport that holds remote candidates exists. It reported nought every
+time and was read as a refusal. It now counts after the answer is set, where
+there is something to count.
+
 The client-isolation explanation is kept for the case it was written for:
 routes tried, checks sent, nothing answered. The last line names the build and
 which form each code took, because a mismatch there explains more failures than

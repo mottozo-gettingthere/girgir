@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 33;
+const APP_VERSION = 34;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -87,7 +87,7 @@ let lastRemoteForm = '', lastLocalForm = '', shortFormOk = true, shortFormWhy = 
    applied. Counting only at failure cannot tell a description that was
    refused on arrival from one whose addresses were taken up and later
    discarded - and those are different faults with the same face. */
-let heldOnArrival = -1;
+let heldOnArrival = -1, iceEverUp = false;
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let bus = null;
 let route = 'earpiece';
@@ -1798,8 +1798,12 @@ async function pairSnapshot(target) {
   const cands = new Map(), rows = [];
   let report;
   try { report = await target.getStats(); } catch (e) { return null; }
-  let locals = 0, remotes = 0;
+  let locals = 0, remotes = 0, dtls = '', srtp = '';
   report.forEach(r => {
+    if (r.type === 'transport') {
+      if (r.dtlsState) dtls = r.dtlsState;
+      if (r.srtpCipher) srtp = r.srtpCipher;
+    }
     if (r.type === 'local-candidate' || r.type === 'remote-candidate') {
       cands.set(r.id, r);
       if (r.type === 'local-candidate') locals++; else remotes++;
@@ -1832,6 +1836,7 @@ async function pairSnapshot(target) {
     rows: rows, locals: locals, remotes: remotes,
     ice: target.iceConnectionState, gather: target.iceGatheringState,
     sig: target.signalingState, conn: target.connectionState,
+    dtls: dtls, srtp: srtp,
     localSdp: target.localDescription && target.localDescription.sdp,
     remoteSdp: target.remoteDescription && target.remoteDescription.sdp
   };
@@ -1853,7 +1858,9 @@ function formatPairs(snap) {
     + (heldOnArrival >= 0
         ? ' (' + heldOnArrival + ' of theirs when their code went in)' : '')
     + '\n  states: ' + snap.sig + ' \u00b7 gathering ' + snap.gather
-    + ' \u00b7 ice ' + snap.ice + ' \u00b7 link ' + snap.conn;
+    + ' \u00b7 ice ' + snap.ice + ' \u00b7 link ' + snap.conn
+    + '\n  encryption: ' + (snap.dtls || 'never started')
+    + (snap.srtp ? ' \u00b7 ' + snap.srtp : '');
   if (!rows.length) {
     /* No pairs is not the same failure as pairs that go unanswered, and saying
        nothing arrives would be a straight untruth: nothing was sent. */
@@ -1863,13 +1870,18 @@ function formatPairs(snap) {
       + held
       + '\n\n' + (!mine.length || !theirs.length
         ? 'One side put up no address at all, so there was nothing to pair with.'
-        : !snap.remotes
-          ? 'Their addresses were in the code and the browser took none of '
-            + 'them up, so there was nothing to pair with. That is this '
-            + 'browser refusing the addresses, not the network losing them.'
-          : 'Both sides had addresses, the browser holds them, and it still '
-            + 'put none of them together. Nothing was sent, so nothing was '
-            + 'dropped on the way.')
+        : (!snap.remotes && heldOnArrival > 0)
+          ? 'Their addresses were taken up when the code went in and have '
+            + 'since been thrown away, which is what happens when a link that '
+            + 'was working is repaired and the repair goes unanswered. The '
+            + 'addresses were never the problem.'
+          : (!snap.remotes && heldOnArrival === 0)
+            ? 'Their addresses were in the code and the browser took none of '
+              + 'them up, so there was nothing to pair with. That is this '
+              + 'browser refusing the addresses, not the network losing them.'
+            : 'Both sides had addresses, the browser holds them, and it still '
+              + 'put none of them together. Nothing was sent, so nothing was '
+              + 'dropped on the way.')
       + footer();
   }
   const body = rows.map(r => (r.sel ? '\u2022 ' : '  ') + r.line + '\n    '
@@ -1999,15 +2011,19 @@ async function explainFailure() {
   const probed = !!snap && snap.rows.some(r => r.theirs > 0);
   const noRoutes = !!snap && !snap.rows.length;
   let msg, stale = false;
-  if (noRoutes && linkedOnce) {
+  if (noRoutes && (linkedOnce || iceEverUp)) {
     /* This link was up and is gone, so the empty pair table is the repair's,
        not the pairing's: an ICE restart throws the old routes away and waits
        for new ones that only arrive if the other side is still listening.
        Reporting that as "no route was ever tried" sent days of debugging at
        the network, the codes and the camera, none of which were involved. */
-    msg = 'The link dropped and the repair found nobody \u2014 ' + (peerName || 'the other phone')
+    msg = linkedOnce
+      ? 'The link dropped and the repair found nobody \u2014 ' + (peerName || 'the other phone')
         + ' has gone quiet. This is not a pairing fault: the two did link. '
-        + 'Pair again when they are back.';
+        + 'Pair again when they are back.'
+      : 'The two phones reached each other and the encryption handshake on top '
+        + 'never finished, so the link never completed. Not a network fault: '
+        + 'the checks were crossing. Pair again with a fresh code on both.';
   } else if (noRoutes && mine && theirs) {
     /* Addresses on both sides and not one route tried, and the two never
        linked. Not packets going missing between the phones, because none were
@@ -2459,12 +2475,24 @@ function sendPing(level) {
 
 function newPeer() {
   linkedOnce = false;
+  iceEverUp = false;
+  heldOnArrival = -1;
   pc = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
   pc.ontrack = ev => {
     remoteStream = ev.streams[0] || new MediaStream([ev.track]);
     ui.remoteAudio.srcObject = remoteStream;
     ui.remoteAudio.play().catch(() => {});
     attachRemoteAnalyser();
+  };
+  /* ICE reaching connected and the link completing are different events, and
+     reporting only the second one cost days. ICE connects as soon as the two
+     ends are exchanging checks; the link completes only once the encryption
+     handshake on top of it finishes. A pair that does the first and not the
+     second has reached each other perfectly well - saying "no route was ever
+     tried" at that is the opposite of the truth. */
+  pc.oniceconnectionstatechange = () => {
+    const s = pc.iceConnectionState;
+    if (s === 'connected' || s === 'completed') iceEverUp = true;
   };
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
@@ -2686,10 +2714,14 @@ async function takeOffer(code) {
   newPeer();
   pc.ondatachannel = ev => wireChannel(ev.channel);
   await pc.setRemoteDescription({ type: 'offer', sdp });
-  await noteArrival(pc);
   micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
   preferOpus();
   await pc.setLocalDescription(await pc.createAnswer());
+  /* Counted here and not straight after the offer went in. The transport that
+     holds remote candidates does not exist until this side has a local
+     description, so counting any earlier reports nought every time and means
+     nothing - which it duly did, in the field, and read as a refusal. */
+  await noteArrival(pc);
   await gatheringDone();
   const answer = await packDesc('A', pc.localDescription.sdp);
   watchAnswerUptake();
