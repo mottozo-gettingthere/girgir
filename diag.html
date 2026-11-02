@@ -367,18 +367,24 @@ document.getElementById('bNet').onclick = async () => {
     row(name, k[0] === 'hidden' ? 'mDNS' : a, k[1], live);
   });
 
-  /* A phone that fails on every network, a hotspot included, is not being
-     blocked by any of them - something on the phone is answering for the
-     network instead. That shows up here as an interface that has no business
-     being in the list. A VPN is the usual one, and on Samsung handsets
-     "Secure Wi-Fi" is a VPN under a name that does not sound like one. */
+  /* An interface beyond the local network - a VPN, mobile data, or Samsung's
+     "Secure Wi-Fi", which is a VPN under a name that does not sound like one -
+     used to be reported here as a fault, in red, with an instruction to turn
+     it off. That was wrong twice over. It is not a fault: extra interfaces add
+     candidates nobody has to use, and a phone with three of them passed every
+     test on this page. And whether it matters at all is a question this page
+     can answer by measurement - Test pairing on this phone tries the routes -
+     rather than by telling anyone to go changing settings. So it is stated,
+     not judged. */
   const lan = addrs.filter(a => classify(a)[0] === 'lan');
   const odd = addrs.filter(a => ['public', 'cgnat', 'vpn'].includes(classify(a)[0]));
 
   if (odd.length) {
-    row('Something else is on this phone', false,
-        odd.join(', ') + ' \u2014 a VPN, Samsung Secure Wi-Fi, or mobile data left on. '
-        + 'Turn those off and run this again: these should disappear.', live);
+    row('Also reachable on', String(odd.length),
+        odd.join(', ') + ' \u2014 mobile data, a VPN, or Samsung Secure Wi-Fi. '
+        + 'Not a fault on its own: these are extra routes, and pairing only '
+        + 'needs the local one to work. Test pairing on this phone says '
+        + 'whether it does.', live);
   }
   const hiddenCount = addrs.filter(a => classify(a)[0] === 'hidden').length;
   if (!lan.length && !hiddenCount) {

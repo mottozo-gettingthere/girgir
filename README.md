@@ -586,6 +586,25 @@ scanner fault spent days looking like a network problem. If the test says the
 phone links to itself, the fault is between the two phones. If it says no route
 was tried even locally, it is on that handset.
 
+## An extra interface is not a fault
+
+**diag.html** used to report a public or VPN address in red, as *something else
+is on this phone*, and tell you to turn it off. Both halves were wrong.
+
+A handset came back with three interfaces - the home network, a public address
+from mobile data, and a global IPv6 - and passed every test on the page: its QR
+reader works, and it paired with itself in 0.2 seconds, five routes tried and
+two answered. Extra interfaces add candidates nobody is obliged to use. Two of
+five answering is exactly what you would expect when the local route works and
+the cellular and IPv6 ones lead nowhere, and that is a working phone, not a
+broken one.
+
+The second half was worse: it told someone to change a phone setting to satisfy
+a diagnostic, when the page can answer the question by measurement instead.
+*Test pairing on this phone* tries the routes and says whether the local one
+works. So the extra interface is now stated and not judged, and nothing on this
+page asks anyone to turn anything off.
+
 ## When one phone fails on every network
 
 **Check the scanner first.** A phone that cannot read a pairing code cannot
