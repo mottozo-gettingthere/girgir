@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 31;
+const APP_VERSION = 32;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -1767,14 +1767,28 @@ function formName(tag) {
   return tag === 'S' ? 'short' : tag ? 'whole' : 'none';
 }
 
-async function pairRows() {
-  if (!pc || !pc.getStats) return null;
+/* Takes the connection to look at rather than reading the live one, because
+   a failure schedules a recovery that replaces it, and a report that measured
+   whatever happened to be there two seconds later is worse than no report.
+
+   It also counts what the ICE agent itself holds, which is not the same thing
+   as what the descriptions say. A description can name three addresses and the
+   agent hold none of them, and those are completely different faults wearing
+   the same face: no pairs. Until this was printed there was no way to tell
+   them apart from the outside. */
+async function pairSnapshot(target) {
+  if (!target || !target.getStats) return null;
   const cands = new Map(), rows = [];
   let report;
-  try { report = await pc.getStats(); } catch (e) { return null; }
+  try { report = await target.getStats(); } catch (e) { return null; }
+  let locals = 0, remotes = 0;
   report.forEach(r => {
-    if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands.set(r.id, r);
+    if (r.type === 'local-candidate' || r.type === 'remote-candidate') {
+      cands.set(r.id, r);
+      if (r.type === 'local-candidate') locals++; else remotes++;
+    }
   });
+  const pc = target;
   /* getStats blanks candidate addresses until the microphone is allowed, the
      same trap pollStats works around: the descriptions carry the addresses, so
      fall back to those rather than printing a row of question marks. */
@@ -1797,7 +1811,13 @@ async function pairRows() {
     });
   });
   rows.sort((a, b) => (b.sel - a.sel) || (b.back - a.back) || (b.sent - a.sent));
-  return rows;
+  return {
+    rows: rows, locals: locals, remotes: remotes,
+    ice: target.iceConnectionState, gather: target.iceGatheringState,
+    sig: target.signalingState, conn: target.connectionState,
+    localSdp: target.localDescription && target.localDescription.sdp,
+    remoteSdp: target.remoteDescription && target.remoteDescription.sdp
+  };
 }
 
 function footer() {
@@ -1806,36 +1826,48 @@ function footer() {
     + (shortFormWhy ? '\nShort form dropped: ' + shortFormWhy : '');
 }
 
-function formatPairs(rows) {
-  if (!rows) return '';
-  const mine = sdpAddrs(pc && pc.localDescription && pc.localDescription.sdp);
-  const theirs = sdpAddrs(pc && pc.remoteDescription && pc.remoteDescription.sdp);
+function formatPairs(snap) {
+  if (!snap) return '';
+  const rows = snap.rows;
+  const mine = sdpAddrs(snap.localSdp);
+  const theirs = sdpAddrs(snap.remoteSdp);
+  const held = '\n  the browser is holding: ' + snap.locals + ' of your addresses, '
+    + snap.remotes + ' of theirs'
+    + '\n  states: ' + snap.sig + ' \u00b7 gathering ' + snap.gather
+    + ' \u00b7 ice ' + snap.ice + ' \u00b7 link ' + snap.conn;
   if (!rows.length) {
     /* No pairs is not the same failure as pairs that go unanswered, and saying
        nothing arrives would be a straight untruth: nothing was sent. */
     return 'No route was ever tried.\n\n  this phone offered: '
       + (mine.length ? mine.join(', ') : 'nothing')
       + '\n  their code carried: ' + (theirs.length ? theirs.join(', ') : 'nothing')
+      + held
       + '\n\n' + (!mine.length || !theirs.length
         ? 'One side put up no address at all, so there was nothing to pair with.'
-        : 'Both sides had addresses and the browser still put none of them '
-          + 'together. Nothing was sent, so nothing was dropped on the way.')
+        : !snap.remotes
+          ? 'Their addresses were in the code and the browser took none of '
+            + 'them up, so there was nothing to pair with. That is this '
+            + 'browser refusing the addresses, not the network losing them.'
+          : 'Both sides had addresses, the browser holds them, and it still '
+            + 'put none of them together. Nothing was sent, so nothing was '
+            + 'dropped on the way.')
       + footer();
   }
   const body = rows.map(r => (r.sel ? '\u2022 ' : '  ') + r.line + '\n    '
     + r.state + ' \u00b7 sent ' + r.sent + ' \u00b7 answered ' + r.back
     + ' \u00b7 their checks ' + r.theirs).join('\n');
   const mute = rows.every(r => r.back === 0);
-  return body + '\n\n' + (mute
+  return body + held + '\n\n' + (mute
     ? 'Nothing answered on any route. Both phones are talking and neither is '
       + 'hearing, which is a VPN, Samsung Secure Wi-Fi, or client isolation '
       + 'on the network \u2014 and a phone that does this on a hotspot too has it '
       + 'on the phone, not the network.'
-    : 'At least one route answered, so the two phones can reach each other.') + footer();
+    : 'At least one route answered, so the two phones can reach each other.')
+    + footer();
 }
 
 /* Appended next to whatever the screen already says, rather than replacing it. */
-async function showPairs(hintEl, rows) {
+async function showPairs(hintEl, snap) {
   if (!hintEl || !hintEl.parentNode) return;
   let pre = hintEl.parentNode.querySelector('pre.pairs');
   if (!pre) {
@@ -1843,7 +1875,7 @@ async function showPairs(hintEl, rows) {
     pre.className = 'pairs';
     hintEl.parentNode.insertBefore(pre, hintEl.nextSibling);
   }
-  const txt = formatPairs(rows === undefined ? await pairRows() : rows);
+  const txt = formatPairs(snap === undefined ? await pairSnapshot(pc) : snap);
   pre.textContent = txt;
   pre.hidden = !txt;
 }
@@ -1936,13 +1968,17 @@ function watchAnswerUptake() {
 }
 
 async function explainFailure() {
-  if (!pc) return '';
-  const mine = sdpHost(pc.localDescription && pc.localDescription.sdp);
-  const theirs = sdpHost(pc.remoteDescription && pc.remoteDescription.sdp);
+  /* Held for the whole of this function: the recovery scheduled alongside it
+     will put a different connection in pc, and this report is about the one
+     that failed. */
+  const target = pc;
+  if (!target) return '';
+  const mine = sdpHost(target.localDescription && target.localDescription.sdp);
+  const theirs = sdpHost(target.remoteDescription && target.remoteDescription.sdp);
   showNet(mine, theirs);
-  const rows = await pairRows();
-  const probed = !!rows && rows.some(r => r.theirs > 0);
-  const noRoutes = !!rows && !rows.length;
+  const snap = await pairSnapshot(target);
+  const probed = !!snap && snap.rows.some(r => r.theirs > 0);
+  const noRoutes = !!snap && !snap.rows.length;
   let msg, stale = false;
   if (noRoutes && mine && theirs) {
     /* Addresses on both sides and not one route tried. Whatever this is, it is
@@ -1981,12 +2017,12 @@ async function explainFailure() {
   if (!ui.views.scan.hidden) {
     ui.scanStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.scanHint.textContent = msg;
-    showPairs(ui.scanHint, rows);
+    showPairs(ui.scanHint, snap);
   }
   if (!ui.views.code.hidden) {
     ui.codeStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.codeHint.textContent = msg;
-    showPairs(ui.codeHint, rows);
+    showPairs(ui.codeHint, snap);
     if (stale) showStale(theirs, true);
   }
   return msg;

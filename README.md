@@ -498,6 +498,27 @@ together. Nothing was sent, so nothing was dropped on the way.
 Girgir 28 · your code short, theirs short
 ```
 
+It also prints what the **ICE agent itself is holding**, which is not the same
+thing as what the descriptions say, and this turned out to matter. A code can
+name three addresses while the browser has taken up none of them, and that is a
+completely different fault from pairs that form and go unanswered - yet both
+appear from the outside as *no route*. Until the counts were printed there was
+no way to tell them apart:
+
+```
+  the browser is holding: 2 of your addresses, 0 of theirs
+  states: stable · gathering complete · ice failed · link failed
+```
+
+Nought of theirs means the browser refused the addresses the code carried,
+which is nothing to do with the network. Two of theirs and still no pairs is
+something else again.
+
+The report is also taken from **the connection that failed**, held in a local
+before anything is awaited. A failure schedules a recovery two seconds later
+that replaces the live connection, and a report measuring whichever one
+happened to be there by then is worse than no report at all.
+
 The client-isolation explanation is kept for the case it was written for:
 routes tried, checks sent, nothing answered. The last line names the build and
 which form each code took, because a mismatch there explains more failures than
