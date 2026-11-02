@@ -475,6 +475,65 @@ own reader and then to the backup, and tells you which of them can actually
 read it. A phone that fails the first line and passes the second has exactly
 this fault, and the app will now handle it by itself.
 
+## When the app says no route
+
+The failure message used to assert a cause it had not measured, and a report
+came back proving it: *no routes were tried at all*, under a headline reading
+*same network, but nothing arrives*. Both phones had named a real address on
+one subnet. Those two statements cannot both be true - with no route there is
+nothing to send, so nothing was dropped on the way.
+
+So the readout states what happened and stops there. When no route was tried
+it prints what each side actually put up:
+
+```
+No route was ever tried.
+
+  this phone offered: 192.168.68.111:51111
+  their code carried: 192.168.68.103:49722
+
+Both sides had addresses and the browser still put none of them
+together. Nothing was sent, so nothing was dropped on the way.
+
+Girgir 28 · your code short, theirs short
+```
+
+The client-isolation explanation is kept for the case it was written for:
+routes tried, checks sent, nothing answered. The last line names the build and
+which form each code took, because a mismatch there explains more failures than
+anything about the network.
+
+That case also stops trusting the short form for the rest of the session, so
+the next code carries the whole description. Nobody has to decide anything, and
+if the rebuilt description was at fault the second attempt will simply work.
+
+Two faults in the rebuilding turned up while looking into it, neither of which
+desktop Chrome will show you:
+
+- The rebuilt description always led with the audio section, whatever order it
+  arrived in. Chrome leads with the audio even when the data channel was made
+  first, so this never showed - but a browser that leads with the data channel
+  would be handed an answer labelling the wrong section. The order now travels
+  in the code.
+- Candidates went into the first media section only. That is correct once the
+  two ends agree on BUNDLE, and desktop Chrome pairs and connects on it. But a
+  phone that pairs *nothing at all* is the one report that would follow from
+  leaving them out, so they are now repeated in both sections, as the browser
+  itself repeats them. The bytes were already in hand, so the code did not grow.
+
+## Testing a phone on its own
+
+*Test pairing on this phone* in **diag.html** pairs a phone with itself: two
+peers in the one page, no servers, the same settings the app uses. It reports
+the addresses it gathered, how many routes were tried, how many answered, and
+whether it linked.
+
+A phone that cannot pair with itself cannot pair with anything, and until that
+is ruled out every other theory is guesswork - which is how one handset's
+scanner fault spent days looking like a network problem. If the test says the
+phone links to itself, the fault is between the two phones. If it says no route
+was tried even locally, it is on that handset.
+
 ## When one phone fails on every network
 
 **Check the scanner first.** A phone that cannot read a pairing code cannot

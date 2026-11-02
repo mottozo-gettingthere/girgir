@@ -195,7 +195,12 @@ document.getElementById('bPair').onclick = async () => {
     await A.setLocalDescription(await A.createOffer({ offerToReceiveAudio: true }));
     await settle(A);
     const mineA = addrs(A.localDescription.sdp);
-    row('This phone has an address', mineA.length > 0, mineA.join(', ') || 'none gathered at all', live);
+    const hidden = mineA.filter(a => /\.local:/i.test(a)).length;
+    row('This phone has an address',
+        mineA.length === 0 ? false : (hidden ? 'CHECK' : true),
+        (mineA.join(', ') || 'none gathered at all')
+          + (hidden ? ' \u2014 hidden behind .local names, which only pair on a network that resolves them' : ''),
+        live);
 
     await B.setRemoteDescription({ type: 'offer', sdp: A.localDescription.sdp });
     if (mic) mic.getTracks().forEach(t => B.addTrack(t, mic));
