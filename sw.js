@@ -8,7 +8,7 @@
    decoder silently returns nothing, which is not known until long after install,
    possibly with no network left to fetch it. 128 KB once, for a scanner that
    works on every phone offline. */
-const CACHE = 'girgir-v27';
+const CACHE = 'girgir-v28';
 const ASSETS = [
   './',
   'index.html',

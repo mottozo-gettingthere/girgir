@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 27;
+const APP_VERSION = 28;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -77,6 +77,12 @@ let micRaw = null, micRawTrack = null, micGainNode = null, micGain = 100;
 let myName = '', peerName = '';
 let amOfferer = false, recoverTimer = 0, recovering = false;
 let lastOfferCode = '', linkedOnce = false;
+/* Which form the other phone's last code arrived in, and whether the short
+   form is still trusted on this pairing. A failure that produced no route at
+   all is the one signature that would follow from a description this phone
+   rebuilt wrongly, so the next code goes out whole rather than asking anyone
+   to decide anything. */
+let lastRemoteForm = '', lastLocalForm = '', shortFormOk = true;
 let standbyCode = '', standbyTimer = 0, lastHeard = 0;
 let bus = null;
 let route = 'earpiece';
@@ -399,7 +405,8 @@ function packStruct(sdp) {
 
   const buf = new Buf();
   buf.u8(1);
-  buf.u8((SETUPS.indexOf(setup) & 3) | ((dir & 3) << 2) | (data ? 16 : 0));
+  buf.u8((SETUPS.indexOf(setup) & 3) | ((dir & 3) << 2) | (data ? 16 : 0)
+         | (data && secs[0] === data ? 32 : 0));
   buf.u8(pt);
   buf.str(ufrag);
   buf.str(pwd);
@@ -419,6 +426,7 @@ function unpackStruct(bytes) {
   if (r.u8() !== 1) throw new Error('newer code');
   const flags = r.u8();
   const setup = SETUPS[flags & 3], dir = DIRS[(flags >> 2) & 3], hasData = !!(flags & 16);
+  const dataFirst = !!(flags & 32);
   const pt = r.u8();
   const ufrag = r.str(), pwd = r.str();
   const fpb = r.take(32);
@@ -446,19 +454,34 @@ function unpackStruct(bytes) {
              'a=group:BUNDLE' + (hasData ? ' 0 1' : ' 0'),
              'a=msid-semantic: WMS gs'];
 
-  L.push('m=audio 9 UDP/TLS/RTP/SAVPF ' + pt, 'c=IN IP4 0.0.0.0', 'a=rtcp:9 IN IP4 0.0.0.0');
-  candLines.forEach(l => L.push(l));
-  ice.forEach(l => L.push(l));
-  L.push('a=mid:0', 'a=' + dir, 'a=msid:gs gt', 'a=rtcp-mux',
-         'a=rtpmap:' + pt + ' opus/48000/2',
-         'a=fmtp:' + pt + ' minptime=10;useinbandfec=1');
-  if (ssrc) L.push('a=ssrc:' + ssrc + ' cname:' + cname, 'a=ssrc:' + ssrc + ' msid:gs gt');
-
-  if (hasData) {
-    L.push('m=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0');
+  /* The media sections go back in the order they came in. Which one the browser
+     puts first is its own business - Chrome leads with the audio even when the
+     data channel was created first - but the answer has to echo the offer's
+     labels, and those follow the order. Rebuilding them the other way round
+     hands the far side an answer that labels the wrong section. */
+  const audioAt = dataFirst ? 1 : 0;
+  const sections = [];
+  sections[audioAt] = () => {
+    L.push('m=audio 9 UDP/TLS/RTP/SAVPF ' + pt, 'c=IN IP4 0.0.0.0', 'a=rtcp:9 IN IP4 0.0.0.0');
+    candLines.forEach(l => L.push(l));
     ice.forEach(l => L.push(l));
-    L.push('a=mid:1', 'a=sctp-port:5000', 'a=max-message-size:' + MAX_MSG);
-  }
+    L.push('a=mid:' + audioAt, 'a=' + dir, 'a=msid:gs gt', 'a=rtcp-mux',
+           'a=rtpmap:' + pt + ' opus/48000/2',
+           'a=fmtp:' + pt + ' minptime=10;useinbandfec=1');
+    if (ssrc) L.push('a=ssrc:' + ssrc + ' cname:' + cname, 'a=ssrc:' + ssrc + ' msid:gs gt');
+  };
+  if (hasData) sections[dataFirst ? 0 : 1] = () => {
+    L.push('m=application 9 UDP/DTLS/SCTP webrtc-datachannel', 'c=IN IP4 0.0.0.0');
+    /* The same addresses are repeated here, as the browser repeats them. Once
+       the two ends agree on BUNDLE this section rides on the other one's
+       transport and these are never used - but a phone that paired nothing at
+       all is the one report that would follow from leaving them out, and they
+       cost nothing, being already in hand. */
+    candLines.forEach(l => L.push(l));
+    ice.forEach(l => L.push(l));
+    L.push('a=mid:' + (dataFirst ? 0 : 1), 'a=sctp-port:5000', 'a=max-message-size:' + MAX_MSG);
+  };
+  sections.forEach(fn => fn && fn());
   return L.join('\r\n') + '\r\n';
 }
 
@@ -475,8 +498,14 @@ function trimSdp(sdp) {
    is S for the short form, D or Z for the whole description compressed, and P
    for the whole description as it stands. */
 async function packDesc(role, sdp) {
-  try { return PROTO + role + 'S' + b64u(packStruct(sdp)); }
-  catch (e) { /* something unexpected in the description: send the whole thing */ }
+  if (shortFormOk) {
+    try {
+      const short = PROTO + role + 'S' + b64u(packStruct(sdp));
+      lastLocalForm = 'S';
+      return short;
+    } catch (e) { /* something unexpected in the description: send the whole thing */ }
+  }
+  lastLocalForm = 'D';
   const bytes = new TextEncoder().encode(trimSdp(sdp));
   for (const tag of ['D', 'Z']) {
     try { return PROTO + role + tag + b64u(await squeeze(bytes, FORMATS[tag])); }
@@ -491,6 +520,7 @@ async function unpackDesc(code) {
   const role = text[2], tag = text[3];
   if (role !== 'O' && role !== 'A') throw new Error('That code is malformed.');
   const payload = unb64u(text.slice(4));
+  lastRemoteForm = tag;
   if (tag === 'S') return { role, sdp: unpackStruct(payload) };
   if (tag === 'P') return { role, sdp: new TextDecoder().decode(payload) };
   if (!FORMATS[tag]) throw new Error('That code came from a newer Girgir than this one. Update this phone.');
@@ -1639,11 +1669,30 @@ function showNet(a, b) {
    any of them, and no worded guess will say which interface is swallowing the
    packets - the pairs will. Nothing here is stored: it is read from the live
    connection when the screen is drawn and goes when the page does. */
-async function pairReport() {
-  if (!pc || !pc.getStats) return '';
+/* Every address a description actually carries, which is the thing the pair
+   table cannot tell you when there are no pairs: whether the two phones had
+   anything to put together in the first place. */
+function sdpAddrs(sdp) {
+  if (!sdp) return [];
+  const seen = [];
+  (sdp.match(/^a=candidate:.*$/gm) || []).forEach(l => {
+    const m = /^a=candidate:\S+ (\d+) (\S+) \d+ (\S+) (\d+) typ (\w+)/.exec(l);
+    if (!m || m[1] !== '1') return;
+    const one = m[3] + ':' + m[4] + (m[5] === 'host' ? '' : ' ' + m[5]);
+    if (seen.indexOf(one) < 0) seen.push(one);
+  });
+  return seen;
+}
+
+function formName(tag) {
+  return tag === 'S' ? 'short' : tag ? 'whole' : 'none';
+}
+
+async function pairRows() {
+  if (!pc || !pc.getStats) return null;
   const cands = new Map(), rows = [];
   let report;
-  try { report = await pc.getStats(); } catch (e) { return ''; }
+  try { report = await pc.getStats(); } catch (e) { return null; }
   report.forEach(r => {
     if (r.type === 'local-candidate' || r.type === 'remote-candidate') cands.set(r.id, r);
   });
@@ -1668,8 +1717,31 @@ async function pairReport() {
       sel: !!(r.nominated || r.selected)
     });
   });
-  if (!rows.length) return 'No routes were tried at all \u2014 the two codes never produced a pair.';
   rows.sort((a, b) => (b.sel - a.sel) || (b.back - a.back) || (b.sent - a.sent));
+  return rows;
+}
+
+function footer() {
+  return '\n\nGirgir ' + APP_VERSION + ' \u00b7 your code ' + formName(lastLocalForm)
+    + ', theirs ' + formName(lastRemoteForm);
+}
+
+function formatPairs(rows) {
+  if (!rows) return '';
+  const mine = sdpAddrs(pc && pc.localDescription && pc.localDescription.sdp);
+  const theirs = sdpAddrs(pc && pc.remoteDescription && pc.remoteDescription.sdp);
+  if (!rows.length) {
+    /* No pairs is not the same failure as pairs that go unanswered, and saying
+       nothing arrives would be a straight untruth: nothing was sent. */
+    return 'No route was ever tried.\n\n  this phone offered: '
+      + (mine.length ? mine.join(', ') : 'nothing')
+      + '\n  their code carried: ' + (theirs.length ? theirs.join(', ') : 'nothing')
+      + '\n\n' + (!mine.length || !theirs.length
+        ? 'One side put up no address at all, so there was nothing to pair with.'
+        : 'Both sides had addresses and the browser still put none of them '
+          + 'together. Nothing was sent, so nothing was dropped on the way.')
+      + footer();
+  }
   const body = rows.map(r => (r.sel ? '\u2022 ' : '  ') + r.line + '\n    '
     + r.state + ' \u00b7 sent ' + r.sent + ' \u00b7 answered ' + r.back
     + ' \u00b7 their checks ' + r.theirs).join('\n');
@@ -1679,11 +1751,11 @@ async function pairReport() {
       + 'hearing, which is a VPN, Samsung Secure Wi-Fi, or client isolation '
       + 'on the network \u2014 and a phone that does this on a hotspot too has it '
       + 'on the phone, not the network.'
-    : 'At least one route answered, so the two phones can reach each other.');
+    : 'At least one route answered, so the two phones can reach each other.') + footer();
 }
 
 /* Appended next to whatever the screen already says, rather than replacing it. */
-async function showPairs(hintEl) {
+async function showPairs(hintEl, rows) {
   if (!hintEl || !hintEl.parentNode) return;
   let pre = hintEl.parentNode.querySelector('pre.pairs');
   if (!pre) {
@@ -1691,7 +1763,7 @@ async function showPairs(hintEl) {
     pre.className = 'pairs';
     hintEl.parentNode.insertBefore(pre, hintEl.nextSibling);
   }
-  const txt = await pairReport();
+  const txt = formatPairs(rows === undefined ? await pairRows() : rows);
   pre.textContent = txt;
   pre.hidden = !txt;
 }
@@ -1788,9 +1860,23 @@ async function explainFailure() {
   const mine = sdpHost(pc.localDescription && pc.localDescription.sdp);
   const theirs = sdpHost(pc.remoteDescription && pc.remoteDescription.sdp);
   showNet(mine, theirs);
-  const probed = await peerEverProbed();
+  const rows = await pairRows();
+  const probed = !!rows && rows.some(r => r.theirs > 0);
+  const noRoutes = !!rows && !rows.length;
   let msg, stale = false;
-  if (!mine || !theirs) {
+  if (noRoutes && mine && theirs) {
+    /* Addresses on both sides and not one route tried. Whatever this is, it is
+       not packets going missing between the phones, because none were sent -
+       so it does not get the client-isolation speech. If the description was
+       one this phone rebuilt from a short code, that is the part of this app
+       most likely to be wrong, and the next code goes out whole. */
+    const retry = lastRemoteForm === 'S' || lastLocalForm === 'S';
+    if (retry) shortFormOk = false;
+    msg = 'No route \u2014 both phones put up an address and the browser tried '
+        + 'none of them. Nothing was sent, so nothing was lost on the way.'
+        + (retry ? ' The next code will carry the whole description instead of '
+                 + 'the short one. Tap Fresh code and pair again.' : '');
+  } else if (!mine || !theirs) {
     msg = 'No route \u2014 one phone offered no address at all. Allow the microphone on both, then pair again.';
   } else if (/\.local$/i.test(mine) || /\.local$/i.test(theirs)) {
     msg = 'No route \u2014 a browser hid its address behind a .local name and this network cannot resolve it. Allow the microphone on both phones before pairing.';
@@ -1815,12 +1901,12 @@ async function explainFailure() {
   if (!ui.views.scan.hidden) {
     ui.scanStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.scanHint.textContent = msg;
-    showPairs(ui.scanHint);
+    showPairs(ui.scanHint, rows);
   }
   if (!ui.views.code.hidden) {
     ui.codeStep.textContent = stale ? 'CODE EXPIRED' : 'NO ROUTE';
     ui.codeHint.textContent = msg;
-    showPairs(ui.codeHint);
+    showPairs(ui.codeHint, rows);
     if (stale) showStale(theirs, true);
   }
   return msg;

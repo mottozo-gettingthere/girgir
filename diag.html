@@ -39,6 +39,7 @@
 <button id="bTone">Test tone</button>
 <button id="bNet">Test local address</button>
 <button id="bScan">Test QR scanner</button>
+<button id="bPair">Test pairing on this phone</button>
 <div id="live"></div>
 
 <p id="ua"></p>
@@ -147,6 +148,103 @@ document.getElementById('bMic').onclick = async () => {
    to find. Here the phone is handed a QR code it cannot miss: a clean one
    drawn on a canvas at the same density as a real pairing code. Anything but
    a decode is the decoder's fault, not the camera's. */
+/* Pairing needs two things of a phone that nothing else here tests: that it
+   can gather an address for itself, and that its browser will actually put two
+   addresses together and send a check. A phone can do the first and not the
+   second - a VPN holding the route, or a browser that has filtered the
+   interface away - and from the outside that is indistinguishable from the
+   other phone being at fault. So this pairs the phone with itself. Two peers
+   in this one page, no servers, the same settings the app uses. If this fails,
+   nothing is wrong with the other phone or with the code on its screen. */
+document.getElementById('bPair').onclick = async () => {
+  live.innerHTML = '';
+  const settle = pc => new Promise(r => {
+    if (pc.iceGatheringState === 'complete') return r();
+    const t = setTimeout(r, 5000);
+    pc.addEventListener('icegatheringstatechange', () => {
+      if (pc.iceGatheringState === 'complete') { clearTimeout(t); r(); }
+    });
+  });
+  const addrs = sdp => {
+    const seen = [];
+    (String(sdp).match(/^a=candidate:.*$/gm) || []).forEach(l => {
+      const m = /^a=candidate:\S+ (\d+) (\S+) \d+ (\S+) (\d+) typ (\w+)/.exec(l);
+      if (!m || m[1] !== '1') return;
+      const one = m[3] + ':' + m[4] + (m[5] === 'host' ? '' : ' ' + m[5]);
+      if (seen.indexOf(one) < 0) seen.push(one);
+    });
+    return seen;
+  };
+
+  let mic = null;
+  try {
+    mic = await navigator.mediaDevices.getUserMedia({ audio: true });
+    row('Microphone allowed', true, 'addresses are hidden behind .local names without it', live);
+  } catch (e) {
+    row('Microphone allowed', false, 'without it the addresses will be .local names', live);
+  }
+
+  let A = null, B = null;
+  try {
+    A = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
+    B = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
+    let opened = false;
+    const ch = A.createDataChannel('ctl', { ordered: true });
+    ch.onopen = () => { opened = true; };
+    if (mic) mic.getTracks().forEach(t => A.addTrack(t, mic));
+    await A.setLocalDescription(await A.createOffer({ offerToReceiveAudio: true }));
+    await settle(A);
+    const mineA = addrs(A.localDescription.sdp);
+    row('This phone has an address', mineA.length > 0, mineA.join(', ') || 'none gathered at all', live);
+
+    await B.setRemoteDescription({ type: 'offer', sdp: A.localDescription.sdp });
+    if (mic) mic.getTracks().forEach(t => B.addTrack(t, mic));
+    await B.setLocalDescription(await B.createAnswer());
+    await settle(B);
+    await A.setRemoteDescription({ type: 'answer', sdp: B.localDescription.sdp });
+
+    const t0 = Date.now();
+    await new Promise(r => {
+      const iv = setInterval(() => {
+        if (A.connectionState === 'connected' || A.connectionState === 'failed'
+            || Date.now() - t0 > 12000) { clearInterval(iv); r(); }
+      }, 200);
+    });
+
+    const rows = [];
+    (await A.getStats()).forEach(st => {
+      if (st.type === 'candidate-pair') rows.push(st);
+    });
+    const tried = rows.length;
+    const answered = rows.filter(st => (st.responsesReceived || 0) > 0).length;
+    row('Routes tried', tried > 0, tried + ' pair' + (tried === 1 ? '' : 's') +
+        ' formed from those addresses', live);
+    row('Routes answered', answered > 0, answered + ' of ' + tried +
+        ' got a reply', live);
+    row('Linked to itself', A.connectionState === 'connected',
+        A.connectionState + ' after ' + Math.round((Date.now() - t0) / 100) / 10 + 's', live);
+    row('Control channel', opened, opened ? 'open' : 'never opened', live);
+
+    if (A.connectionState === 'connected') {
+      row('Verdict', 'OK', 'This phone can pair. A failure with another phone is ' +
+          'between the two of them, not in this handset.', live);
+    } else if (!tried) {
+      row('Verdict', 'NO', 'This phone will not try a route even to itself. A VPN ' +
+          'holding the route does this, and so does a browser that has filtered ' +
+          'the network away. It will not pair with anything in this state.', live);
+    } else {
+      row('Verdict', 'NO', 'Routes were tried and went unanswered on this phone ' +
+          'alone, with no network in between.', live);
+    }
+  } catch (e) {
+    row('Pairing test', false, String(e && e.message || e), live);
+  } finally {
+    if (A) try { A.close(); } catch (e) {}
+    if (B) try { B.close(); } catch (e) {}
+    if (mic) mic.getTracks().forEach(t => t.stop());
+  }
+};
+
 document.getElementById('bScan').onclick = async () => {
   live.innerHTML = '';
   const SAMPLE = 'E1OS' + 'A1b2C3-_x'.repeat(14).slice(0, 119);
