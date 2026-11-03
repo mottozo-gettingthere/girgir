@@ -685,6 +685,22 @@ check was quietly refusing every short code there was, and the codes went back
 to 824 characters with nothing visibly wrong. A diagnostic readout earns its
 keep in one line like that.
 
+## Version 12, kept alongside for comparison
+
+`/v12/` is the build from before any of the pairing diagnostics went in, served
+from the same site. It registers no service worker, so it cannot install itself
+or take over the main app, and its version reads 12 so it never nags for an
+update.
+
+It is there because the readouts kept answering the wrong question. They
+established what was *not* at fault - the network, the codes, the camera, the
+rebuilding, the roles - without ever establishing what was, and a build known
+to have worked settles in one test what six rounds of instruments could not:
+whether this is a regression in the app or something that changed around it.
+
+Pairing on v12 needs the camera or its own paste box; it predates pairing by
+link, so a `#code` on the end of the URL does nothing there.
+
 ## Testing a phone on its own
 
 *Test pairing on this phone* in **diag.html** pairs a phone with itself: two
