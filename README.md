@@ -578,6 +578,38 @@ the transport that holds remote candidates exists. It reported nought every
 time and was read as a refusal. It now counts after the answer is set, where
 there is something to count.
 
+### Who opens the handshake
+
+Both ends of one attempt reported `encryption: new`. Not failed - **never
+started**, on either phone, while ICE had connected on both.
+
+Which is a narrow thing to be wrong. The offer says `actpass`, the answer picks
+`active` or `passive`, and the active side is the one that must speak first.
+Two passives and nobody ever opens it: the routes connect, the handshake never
+begins, and from outside that is indistinguishable from a network dropping
+everything. It is decided entirely by those two words, so the readout now prints
+them, along with which side created the channel and the role the browser
+settled on:
+
+```
+  who opens it: this phone answered, active against their actpass · acting as client
+```
+
+That is what a healthy pairing looks like. Anything else - two actives, two
+passives, an answer facing an answer - names the fault outright.
+
+### The count that kept lying
+
+The other side's address count was taken at one instant, and came back nought
+on the answering phone while ICE went on to connect, which cannot both be true.
+Twice wrong: before this side has a local description there is no transport to
+hold remote candidates at all, and even after there is, they are added a beat
+later. A single reading could not help being early.
+
+It is now the high-water mark over the first few seconds, sampled eight times:
+whatever the browser ever held, it held. Both earlier readings were my
+measurement, and both were read as the browser refusing the addresses.
+
 The client-isolation explanation is kept for the case it was written for:
 routes tried, checks sent, nothing answered. The last line names the build and
 which form each code took, because a mismatch there explains more failures than

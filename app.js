@@ -10,7 +10,7 @@ const $ = id => document.getElementById(id);
    between launches. Flip this to true if you would rather it remembered your
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js. */
-const APP_VERSION = 34;
+const APP_VERSION = 35;
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -1768,6 +1768,18 @@ function sdpAddrs(sdp) {
   return seen;
 }
 
+/* Who is meant to speak first in the encryption handshake. The offer says
+   actpass, the answer picks active or passive, and the active side is the one
+   that must open. Two passives and nobody ever opens it: the routes connect,
+   the handshake never starts, and from the outside that is indistinguishable
+   from a network that drops everything. Worth printing, since it is decided
+   entirely by these two words. */
+function sdpSetup(sdp) {
+  if (!sdp) return '';
+  const m = /^a=setup:(\S+)$/m.exec(sdp);
+  return m ? m[1] : '';
+}
+
 function formName(tag) {
   return tag === 'S' ? 'short' : tag ? 'whole' : 'none';
 }
@@ -1781,16 +1793,30 @@ function formName(tag) {
    agent hold none of them, and those are completely different faults wearing
    the same face: no pairs. Until this was printed there was no way to tell
    them apart from the outside. */
-/* Called straight after a remote description goes in, before anything else
-   has had a chance to act on it. */
-async function noteArrival(target) {
+/* The high-water mark of the other side's addresses, sampled over the first
+   few seconds after their code goes in.
+
+   One reading taken at a single instant was useless twice over: before this
+   side has a local description there is no transport to hold them, and even
+   after there is, the candidates are added a beat later. Both readings came
+   back nought on the answering phone while ICE went on to connect, which
+   cannot both be true, and the nought was read as a refusal. A maximum over
+   several samples cannot be fooled that way: whatever the browser ever held,
+   it held. */
+function noteArrival(target) {
   heldOnArrival = -1;
   if (!target || !target.getStats) return;
-  try {
-    let n = 0;
-    (await target.getStats()).forEach(r => { if (r.type === 'remote-candidate') n++; });
-    heldOnArrival = n;
-  } catch (e) { /* nothing to report, and nothing worth breaking a pairing for */ }
+  let left = 8;
+  const tick = async () => {
+    if (!target || target !== pc || target.signalingState === 'closed') return;
+    try {
+      let n = 0;
+      (await target.getStats()).forEach(r => { if (r.type === 'remote-candidate') n++; });
+      if (n > heldOnArrival) heldOnArrival = n;
+    } catch (e) { return; }
+    if (--left > 0) setTimeout(tick, 400);
+  };
+  tick();
 }
 
 async function pairSnapshot(target) {
@@ -1798,11 +1824,12 @@ async function pairSnapshot(target) {
   const cands = new Map(), rows = [];
   let report;
   try { report = await target.getStats(); } catch (e) { return null; }
-  let locals = 0, remotes = 0, dtls = '', srtp = '';
+  let locals = 0, remotes = 0, dtls = '', srtp = '', role = '';
   report.forEach(r => {
     if (r.type === 'transport') {
       if (r.dtlsState) dtls = r.dtlsState;
       if (r.srtpCipher) srtp = r.srtpCipher;
+      if (r.dtlsRole) role = r.dtlsRole;
     }
     if (r.type === 'local-candidate' || r.type === 'remote-candidate') {
       cands.set(r.id, r);
@@ -1836,7 +1863,10 @@ async function pairSnapshot(target) {
     rows: rows, locals: locals, remotes: remotes,
     ice: target.iceConnectionState, gather: target.iceGatheringState,
     sig: target.signalingState, conn: target.connectionState,
-    dtls: dtls, srtp: srtp,
+    dtls: dtls, srtp: srtp, role: role,
+    mySetup: sdpSetup(target.localDescription && target.localDescription.sdp),
+    theirSetup: sdpSetup(target.remoteDescription && target.remoteDescription.sdp),
+    offerer: amOfferer,
     localSdp: target.localDescription && target.localDescription.sdp,
     remoteSdp: target.remoteDescription && target.remoteDescription.sdp
   };
@@ -1856,11 +1886,14 @@ function formatPairs(snap) {
   const held = '\n  the browser is holding: ' + snap.locals + ' of your addresses, '
     + snap.remotes + ' of theirs'
     + (heldOnArrival >= 0
-        ? ' (' + heldOnArrival + ' of theirs when their code went in)' : '')
+        ? ' (most of theirs ever held: ' + heldOnArrival + ')' : '')
     + '\n  states: ' + snap.sig + ' \u00b7 gathering ' + snap.gather
     + ' \u00b7 ice ' + snap.ice + ' \u00b7 link ' + snap.conn
     + '\n  encryption: ' + (snap.dtls || 'never started')
-    + (snap.srtp ? ' \u00b7 ' + snap.srtp : '');
+    + (snap.srtp ? ' \u00b7 ' + snap.srtp : '')
+    + '\n  who opens it: this phone ' + (snap.offerer ? 'created' : 'answered')
+    + ', ' + (snap.mySetup || '?') + ' against their ' + (snap.theirSetup || '?')
+    + (snap.role ? ' \u00b7 acting as ' + snap.role : '');
   if (!rows.length) {
     /* No pairs is not the same failure as pairs that go unanswered, and saying
        nothing arrives would be a straight untruth: nothing was sent. */
@@ -1870,7 +1903,7 @@ function formatPairs(snap) {
       + held
       + '\n\n' + (!mine.length || !theirs.length
         ? 'One side put up no address at all, so there was nothing to pair with.'
-        : (!snap.remotes && heldOnArrival > 0)
+        : (!snap.remotes && heldOnArrival > 0)   /* held, then thrown away */
           ? 'Their addresses were taken up when the code went in and have '
             + 'since been thrown away, which is what happens when a link that '
             + 'was working is repaired and the repair goes unanswered. The '
@@ -2717,11 +2750,7 @@ async function takeOffer(code) {
   micStream.getTracks().forEach(t => pc.addTrack(t, micStream));
   preferOpus();
   await pc.setLocalDescription(await pc.createAnswer());
-  /* Counted here and not straight after the offer went in. The transport that
-     holds remote candidates does not exist until this side has a local
-     description, so counting any earlier reports nought every time and means
-     nothing - which it duly did, in the field, and read as a refusal. */
-  await noteArrival(pc);
+  noteArrival(pc);
   await gatheringDone();
   const answer = await packDesc('A', pc.localDescription.sdp);
   watchAnswerUptake();
@@ -2740,7 +2769,7 @@ async function takeAnswer(code) {
   ui.scanHint.textContent = 'Linking up…';
   show('scan');
   await pc.setRemoteDescription({ type: 'answer', sdp });
-  await noteArrival(pc);
+  noteArrival(pc);
 }
 
 function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter) {
