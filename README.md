@@ -701,6 +701,20 @@ whether this is a regression in the app or something that changed around it.
 Pairing on v12 needs the camera or its own paste box; it predates pairing by
 link, so a `#code` on the end of the URL does nothing there.
 
+**v12 fails the same way.** That is the one useful result the instruments never
+produced, and it closes the whole line of enquiry they opened: the app is not
+what changed. Thirty-five versions of pairing code, the six rounds of readouts,
+the codec, the self-check, the roles - none of it can be the cause of a failure
+that a build from before any of it fails at identically. Reading diffs between
+12 and 35 was never going to find anything, because the pairing path is
+byte-for-byte the same in both.
+
+So the fault is around the app, not in it: the network between the two devices,
+or something the browsers or the handsets started doing since it last worked. No
+further change to the app can be justified until which of those is known, and
+the next test has to take the house network out of the path rather than add
+another measurement to the page.
+
 ## Testing a phone on its own
 
 *Test pairing on this phone* in **diag.html** pairs a phone with itself: two
