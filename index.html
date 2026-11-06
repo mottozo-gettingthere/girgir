@@ -58,45 +58,7 @@
         <button class="btn" id="btnJoin">Join channel</button>
       </div>
       <button class="btn ghost" id="btnGuide">First time? Read the 4-step setup</button>
-      <button class="btn ghost" id="btnDrill">Practise Morse on your own</button>
       <p class="note">Both phones must be on the same Wi-Fi or hotspot.</p>
-    </div>
-  </section>
-
-  <!-- ============ MORSE PRACTICE ============ -->
-  <section class="view" id="viewDrill" hidden>
-    <div class="stack">
-      <p class="step">PRACTICE &middot; NO ONE ELSE NEEDED</p>
-
-      <div class="toggles">
-        <button class="tog" id="btnDrillSend" aria-pressed="true">Send it</button>
-        <button class="tog" id="btnDrillHear" aria-pressed="false">Hear it</button>
-        <button class="tog" id="btnDrillPool" aria-pressed="false">+ digits</button>
-      </div>
-
-      <div class="drill-card">
-        <span class="drill-prompt" id="drillPrompt">&mdash;</span>
-        <span class="drill-sub" id="drillSub">key this one</span>
-      </div>
-
-      <div class="morse" id="drillPanel">
-        <div class="morse-head">
-          <span class="morse-syms" id="drillSyms">&mdash;</span>
-          <button class="tog tiny" id="btnDrillReplay" hidden>Replay</button>
-          <button class="tog tiny" id="btnDrillSkip">Skip</button>
-        </div>
-        <p class="morse-cands" id="drillCands"></p>
-      </div>
-
-      <div class="drill-choices" id="drillChoices" hidden></div>
-
-      <button class="talk" id="drillKey">
-        <span class="talk-label">KEY &middot; SHORT = DOT</span>
-      </button>
-
-      <p class="drill-feedback" id="drillFeedback">&mdash;</p>
-      <p class="note" id="drillScore">streak 0 &middot; best 0</p>
-      <button class="link" id="btnDrillBack">Back</button>
     </div>
   </section>
 
@@ -266,9 +228,6 @@
       <div class="btn-row">
         <button class="btn primary" id="btnNext">Now scan their code</button>
       </div>
-      <div class="btn-row" id="shareRow" hidden>
-        <button class="btn" id="btnShare">Send this as a link</button>
-      </div>
       <details class="fallback">
         <summary>Camera not working? Use text</summary>
         <textarea id="codeText" readonly rows="3" spellcheck="false"></textarea>
@@ -338,17 +297,6 @@
       <button class="mode" data-mode="hold">HOLD</button>
     </div>
 
-    <div class="morse" id="morsePanel" hidden>
-      <div class="morse-head">
-        <span class="morse-syms" id="morseSyms">&mdash;</span>
-        <button class="tog tiny" id="btnMorseHide" aria-pressed="false">Hide</button>
-        <button class="tog tiny" id="btnMorseClear">Clear</button>
-        <button class="tog tiny" id="btnMorseChart">Chart</button>
-      </div>
-      <p class="morse-cands" id="morseCands"></p>
-      <p class="morse-text" id="morseText">&mdash;</p>
-    </div>
-
     <div class="console">
       <button class="ping voice" id="voiceBtn" aria-pressed="false">
         <span class="face" id="voiceFace">&#128528;</span>
@@ -371,18 +319,6 @@
   </section>
 
 </main>
-
-<div class="sheet" id="morseSheet" hidden>
-  <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Morse chart">
-    <div class="sheet-head">
-      <h2>Morse</h2>
-      <button class="icon-btn" id="btnMorseClose" aria-label="Close chart">&times;</button>
-    </div>
-    <p class="note">Short press is a dot, long press is a dash. Stop pressing for a moment and the letter lands; pause longer for a space.</p>
-    <div class="morse-grid" id="morseGrid"></div>
-    <p class="note">The helper narrows this list as you tap, which is the same thing the branching Morse charts do &mdash; every dot or dash halves what is still possible, so you never have to read an alphabet while someone is sending. Those branching charts carry the 26 letters only; the digits and the three punctuation marks are here.</p>
-  </div>
-</div>
 
 <div class="sheet" id="sheet" hidden>
   <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Settings">
@@ -426,13 +362,8 @@
     <div class="toggles">
       <button class="tog" id="togHalf" aria-pressed="true">Half duplex</button>
       <button class="tog" id="togRoger" aria-pressed="true">Roger beep</button>
-      <button class="tog" id="togEars" aria-pressed="false">Earphones</button>
-      <button class="tog" id="togMorse" aria-pressed="false">Morse keyer</button>
-      <button class="tog" id="togMorseHelp" aria-pressed="true">Letter helper</button>
       <button class="tog" id="togAwake" aria-pressed="true">Keep screen on</button>
     </div>
-    <p class="note">Morse keyer turns the talk button into a key: a short press is a dot, a long one a dash, and letting go for a moment lands the letter. Letter helper shows which letters are still reachable from what you have tapped so far &mdash; turn it off to send blind. The listener gets their own Hide button, so they can guess before they look.</p>
-    <p class="note">Earphones turns off echo cancelling and automatic gain, which exist to keep a loudspeaker out of the microphone and have nothing to do once the sound is in your ears &mdash; you should sound clearer. It also lets LATCH keep transmitting with the screen off, since the button on the cable is what you are using. HOLD still cuts out when the app leaves the screen, as a safety.</p>
     <p class="note">Half duplex mutes the other person while you transmit, so you never hear yourself back. Roger beep sounds a short tone when they stop talking. Both start on.</p>
     <p class="note">Keep screen on holds the screen awake while you are linked. Turn it off to pocket the phone — on Android the channel keeps running with the screen off, best in OPEN mode. An iPhone suspends the page either way, so it has to stay awake there.</p>
   </div>

@@ -1,5 +1,33 @@
 # Girgir
 
+## Back on version 12's code, shipped as 36
+
+The app is version 12 again. Everything from 13 to 35 is gone from it: pairing
+by link, the short codes, the Morse keyer, the extra diagnostics, the headset
+talk key. The last build the app was confirmed working on was 11, four minutes
+before 12 shipped, and 12 is the last build of that generation - so this is the
+known-good base, and features go back on one at a time, each one tested on the
+real phones before the next.
+
+The number had to go up. The updater only ever offers a build newer than the
+one installed, so a phone running 35 would never be offered a 12, and a revert
+shipped as 12 would have reached nobody. Settings therefore reads
+**36 (version 12 code)**: 36 is what the updater compares, 12 is what is
+running.
+
+`diag.html` is deliberately *not* reverted. It is a separate page, not part of
+the app, and it is the only instrument that can tell a broken scanner from a
+broken network - which is still unsettled. `/v12/` also stays, as an untouched
+copy that registers no service worker at all, for ruling out caching.
+
+What has not changed is that version 12 served from `/v12/` failed on the real
+phones. Reverting is worth doing anyway, because that test was run under the
+main app's service worker, from a path no phone had ever installed, with no
+link pairing - so it needed the camera on a handset whose scanner has been
+unreliable. This is the same code on the real install path, with a fresh cache.
+
+---
+
 A two-phone intercom that runs with no internet, no server and no account.
 Audio goes directly phone to phone over Wi-Fi using WebRTC. Pairing is a
 two-step QR exchange, so nothing needs to broker the introduction.
