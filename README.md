@@ -1,6 +1,6 @@
 # Girgir
 
-## Back on version 12's code, shipped as 36
+## Back on version 12's code, shipped as 36 and up
 
 The app is version 12 again. Everything from 13 to 35 is gone from it: pairing
 by link, the short codes, the Morse keyer, the extra diagnostics, the headset
@@ -12,8 +12,9 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**36 (version 12 code)**: 36 is what the updater compares, 12 is what is
-running.
+**37 (version 12 code)**: 37 is what the updater compares, 12 is what the
+code is based on. The one addition since the revert is **Test this phone** on
+the main page, which opens `diag.html`.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

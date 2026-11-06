@@ -349,6 +349,7 @@ body {
   background: transparent; color: var(--muted);
   border-style: dashed; font-weight: 400; letter-spacing: 0.02em;
 }
+a.btn { display: block; box-sizing: border-box; text-align: center; text-decoration: none; }
 
 /* ---------- guide ---------- */
 

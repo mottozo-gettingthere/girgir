@@ -11,11 +11,11 @@ const $ = id => document.getElementById(id);
    mode, toggles and volume. */
 /* Must match the number in version.json and the cache name in sw.js.
 
-   This is version 12's code, shipped as 36. The number had to go up: the
+   This is version 12's code, shipped above 35. The number had to go up: the
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 36;
+const APP_VERSION = 37;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
