@@ -4,10 +4,10 @@
 
 The app is version 12 again. Everything from 13 to 35 is gone from it: pairing
 by link, the short codes, the Morse keyer, the extra diagnostics, the headset
-talk key. The last build the app was confirmed working on was 11, four minutes
-before 12 shipped, and 12 is the last build of that generation - so this is the
-known-good base, and features go back on one at a time, each one tested on the
-real phones before the next.
+talk key. 12 is the last version named as working. Nothing in the record tests
+it on its own: the only explicit report of a clean connection came later, at
+version 20, from a different handset (see below). Features go back on one at a
+time, each one tested on the real phones before the next.
 
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
@@ -20,11 +20,14 @@ the app, and it is the only instrument that can tell a broken scanner from a
 broken network - which is still unsettled. `/v12/` also stays, as an untouched
 copy that registers no service worker at all, for ruling out caching.
 
-What has not changed is that version 12 served from `/v12/` failed on the real
-phones. Reverting is worth doing anyway, because that test was run under the
-main app's service worker, from a path no phone had ever installed, with no
-link pairing - so it needed the camera on a handset whose scanner has been
-unreliable. This is the same code on the real install path, with a fresh cache.
+What is on record about which phones worked: at version 20, on the home Wi-Fi,
+"android 2" connected to a laptop and another phone without problem, while
+"android 1" would not read codes. Android 1 later failed on a hotspot too. The
+`/v12/` failure did not record which handsets were used, so it cannot separate a
+fault in the code from a fault in that one phone. Test with Android 2 first.
+
+Version 12's updater predates the fix in 13 that made it replace the files, and
+its update message was reported as refusing to go away. Both are back.
 
 ---
 
@@ -729,19 +732,9 @@ whether this is a regression in the app or something that changed around it.
 Pairing on v12 needs the camera or its own paste box; it predates pairing by
 link, so a `#code` on the end of the URL does nothing there.
 
-**v12 fails the same way.** That is the one useful result the instruments never
-produced, and it closes the whole line of enquiry they opened: the app is not
-what changed. Thirty-five versions of pairing code, the six rounds of readouts,
-the codec, the self-check, the roles - none of it can be the cause of a failure
-that a build from before any of it fails at identically. Reading diffs between
-12 and 35 was never going to find anything, because the pairing path is
-byte-for-byte the same in both.
-
-So the fault is around the app, not in it: the network between the two devices,
-or something the browsers or the handsets started doing since it last worked. No
-further change to the app can be justified until which of those is known, and
-the next test has to take the house network out of the path rather than add
-another measurement to the page.
+**v12 failed when tried on real phones**, with no record of which handsets or
+what the failure looked like. That does not clear the app. It does rule out the
+changes after 12 as the only cause, if the same phones were used.
 
 ## Testing a phone on its own
 
