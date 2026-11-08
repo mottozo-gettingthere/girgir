@@ -12,9 +12,27 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**37 (version 12 code)**: 37 is what the updater compares, 12 is what the
-code is based on. The one addition since the revert is **Test this phone** on
-the main page, which opens `diag.html`.
+**38 (version 12 code, Wi-Fi routes only)**: 38 is what the updater compares,
+12 is what the code is based on. Two things have been added since the revert:
+
+- **Test this phone** on the main page, which opens `diag.html` (37).
+- **Wi-Fi routes only** (38). The primary phone, the one that almost never
+  linked, has mobile data on alongside Wi-Fi. Its diagnostics show three
+  addresses: its Wi-Fi one, a carrier address and a global
+  IPv6 one. The phone that linked every time showed only its Wi-Fi address.
+  Version 12 put every address into the code, so the browser could pick a
+  route through mobile data or IPv6, have it answer, and then lose it. Every
+  description that crosses between the phones - both codes, and the ones
+  exchanged when a dropped link heals itself - now keeps only UDP routes on a
+  private IPv4 address. Two private addresses can only reach each other on a
+  shared local network, so nothing left can lead elsewhere, and no phone
+  setting has to change. If a phone has no private address at all, its
+  description passes through untouched rather than being emptied.
+
+  Tested: the filter against the primary phone's real three addresses, hotspot
+  ranges, and edge cases; and ten browser pairings with those addresses
+  injected, all linked. Not yet tested: the primary phone itself, which is the
+  only test that shows whether this was the cause.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

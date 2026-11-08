@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 37;
+const APP_VERSION = 38;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -195,9 +195,39 @@ function trimSdp(sdp) {
     .join('\r\n');
 }
 
+/* Two phones on the same Wi-Fi only ever need their Wi-Fi addresses. A phone
+   with mobile data on also offers its carrier address and a global IPv6 one,
+   and the browser will happily try those, pick one that answers through the
+   internet, and then lose it - which shows up as linking and dropping on that
+   phone alone, while a phone on Wi-Fi only links every time. So every
+   description that crosses between the phones, in either direction, keeps
+   only UDP routes on a private IPv4 address (or a .local name standing in for
+   one). A pair of private addresses can only work on a shared local network,
+   so nothing that survives this can lead anywhere else. If a phone somehow
+   has no such address, its description passes through untouched rather than
+   being emptied. */
+function isLocalAddr(a) {
+  if (/\.local$/i.test(a)) return true;
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(a);
+  if (!m) return false;
+  const x = +m[1], y = +m[2];
+  return x === 10 || (x === 172 && y >= 16 && y <= 31) || (x === 192 && y === 168);
+}
+
+function localOnly(sdp) {
+  const lines = String(sdp).split('\r\n');
+  const isCand = l => l.startsWith('a=candidate:');
+  const keep = l => {
+    const c = /^a=candidate:\S+ \d+ (\S+) \d+ (\S+) \d+ typ host/i.exec(l);
+    return !!c && c[1].toLowerCase() === 'udp' && isLocalAddr(c[2]);
+  };
+  if (!lines.some(l => isCand(l) && keep(l))) return String(sdp);
+  return lines.filter(l => !isCand(l) || keep(l)).join('\r\n');
+}
+
 /* A code is PROTO + role(O|A) + format(D|Z|P) + base64url payload. */
 async function packDesc(role, sdp) {
-  const bytes = new TextEncoder().encode(trimSdp(sdp));
+  const bytes = new TextEncoder().encode(trimSdp(localOnly(sdp)));
   for (const tag of ['D', 'Z']) {
     try { return PROTO + role + tag + b64u(await squeeze(bytes, FORMATS[tag])); }
     catch (e) { /* this compression format is unavailable */ }
@@ -212,7 +242,7 @@ async function unpackDesc(code) {
   const payload = unb64u(text.slice(4));
   if (role !== 'O' && role !== 'A') throw new Error('That code is malformed.');
   const bytes = tag === 'P' ? payload : await expand(payload, FORMATS[tag]);
-  return { role, sdp: new TextDecoder().decode(bytes) };
+  return { role, sdp: localOnly(new TextDecoder().decode(bytes)) };
 }
 
 /* ---------------- audio ---------------- */
@@ -1130,7 +1160,7 @@ async function attemptRecovery(force) {
   try {
     await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
     await gatheringDone();
-    sendCtl({ t: 'reoffer', sdp: pc.localDescription.sdp });
+    sendCtl({ t: 'reoffer', sdp: localOnly(pc.localDescription.sdp) });
     /* If no reply comes back the flag would latch and block every later
        attempt, including the one that notices the peer has gone. */
     setTimeout(() => {
@@ -1147,10 +1177,10 @@ async function takeReoffer(sdp) {
   recovering = true;
   setPill('pairing', 'RELINKING');
   try {
-    await pc.setRemoteDescription({ type: 'offer', sdp: String(sdp) });
+    await pc.setRemoteDescription({ type: 'offer', sdp: localOnly(sdp) });
     await pc.setLocalDescription(await pc.createAnswer());
     await gatheringDone();
-    sendCtl({ t: 'reanswer', sdp: pc.localDescription.sdp });
+    sendCtl({ t: 'reanswer', sdp: localOnly(pc.localDescription.sdp) });
   } catch (e) {
     toast('Could not relink by itself - tap Relink', 6000);
   }
@@ -1160,7 +1190,7 @@ async function takeReoffer(sdp) {
 
 async function takeReanswer(sdp) {
   if (!pc) return;
-  try { await pc.setRemoteDescription({ type: 'answer', sdp: String(sdp) }); }
+  try { await pc.setRemoteDescription({ type: 'answer', sdp: localOnly(sdp) }); }
   catch (e) { toast('Could not relink by itself - tap Relink', 6000); }
   recovering = false;
   settlePill();
@@ -1177,7 +1207,7 @@ function showUpdate(latest) {
 }
 
 async function checkVersion() {
-  ui.verNow.textContent = APP_VERSION + ' (version ' + CODE_OF + ' code)';
+  ui.verNow.textContent = APP_VERSION + ' (version ' + CODE_OF + ' code, Wi-Fi routes only)';
   if (!navigator.onLine) { ui.verLatest.textContent = ' \u00b7 offline'; return; }
   try {
     const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
