@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 38;
+const APP_VERSION = 39;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -28,8 +28,16 @@ const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
   views: {
     setup: $('viewSetup'), help: $('viewHelp'), code: $('viewCode'),
-    scan: $('viewScan'), live: $('viewLive')
+    scan: $('viewScan'), live: $('viewLive'), drill: $('viewDrill')
   },
+  btnDrill: $('btnDrill'), drillPrompt: $('drillPrompt'), drillSub: $('drillSub'),
+  drillPanel: $('drillPanel'), drillSyms: $('drillSyms'), drillCands: $('drillCands'),
+  drillChoices: $('drillChoices'), drillKey: $('drillKey'), drillFeedback: $('drillFeedback'),
+  drillScore: $('drillScore'), btnDrillSend: $('btnDrillSend'), btnDrillHear: $('btnDrillHear'),
+  btnDrillDigits: $('btnDrillDigits'), btnDrillMarks: $('btnDrillMarks'),
+  btnDrillReplay: $('btnDrillReplay'), btnDrillSkip: $('btnDrillSkip'),
+  btnDrillBack: $('btnDrillBack'), btnDrillChart: $('btnDrillChart'),
+  morseSheet: $('morseSheet'), morseChart: $('morseChart'), btnMorseClose: $('btnMorseClose'),
   btnCreate: $('btnCreate'), btnJoin: $('btnJoin'), btnGuide: $('btnGuide'),
   helpBack: $('btnHelpBack'), storeUsed: $('storeUsed'), btnClear: $('btnClear'),
   codeStep: $('codeStep'), codeHint: $('codeHint'), qrCanvas: $('qrCanvas'),
@@ -1761,6 +1769,294 @@ function hangUp() {
   show('setup');
 }
 
+/* ---------------- morse ---------------- */
+
+/* The full international chart, plus the handful of marks that are not ITU
+   but that every chart prints anyway (! & _ $). Each pattern is unique, so a
+   pattern always names exactly one character. */
+const MORSE_GROUPS = [
+  ['Letters', {
+    A: '.-',    B: '-...',  C: '-.-.',  D: '-..',   E: '.',     F: '..-.',
+    G: '--.',   H: '....',  I: '..',    J: '.---',  K: '-.-',   L: '.-..',
+    M: '--',    N: '-.',    O: '---',   P: '.--.',  Q: '--.-',  R: '.-.',
+    S: '...',   T: '-',     U: '..-',   V: '...-',  W: '.--',   X: '-..-',
+    Y: '-.--',  Z: '--..'
+  }],
+  ['Numbers', {
+    '1': '.----', '2': '..---', '3': '...--', '4': '....-', '5': '.....',
+    '6': '-....', '7': '--...', '8': '---..', '9': '----.', '0': '-----'
+  }],
+  ['Punctuation', {
+    '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.', '!': '-.-.--',
+    '/': '-..-.',  '(': '-.--.',  ')': '-.--.-', '&': '.-...',  ':': '---...',
+    ';': '-.-.-.', '=': '-...-',  '+': '.-.-.',  '-': '-....-', '_': '..--.-',
+    '"': '.-..-.', '$': '...-..-', '@': '.--.-.'
+  }]
+];
+const MORSE = Object.assign({}, ...MORSE_GROUPS.map(g => g[1]));
+
+/* Real Morse puts a dash at three dots and a letter gap at three. These keep
+   that ratio around a deliberately slow 260 ms dot, which is about as fast as
+   a thumb can be accurate. */
+const DOT_MAX = 260;
+const LETTER_GAP = 820;
+
+function morseLetter(syms) {
+  for (const k in MORSE) if (MORSE[k] === syms) return k;
+  return '';
+}
+
+function morseCandidates(prefix, pool) {
+  return pool.filter(k => MORSE[k].indexOf(prefix) === 0);
+}
+
+function morsePretty(syms) {
+  return syms.replace(/\./g, '·').replace(/-/g, '–');
+}
+
+let keyOsc = null, keyGain = null;
+
+/* Held down, so it lasts exactly as long as the thumb does - that is the
+   whole point of a key. */
+function keyToneOn() {
+  const ctx = audio();
+  if (!ctx) return;
+  keyToneOff();
+  keyOsc = ctx.createOscillator();
+  keyGain = ctx.createGain();
+  keyOsc.type = 'sine';
+  keyOsc.frequency.value = 620;
+  keyGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  keyGain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.008);
+  keyOsc.connect(keyGain).connect(ctx.destination);
+  keyOsc.start();
+}
+
+function keyToneOff() {
+  if (!keyOsc) return;
+  const o = keyOsc, g = keyGain;
+  keyOsc = keyGain = null;
+  const ctx = audio();
+  if (!ctx) return;
+  try {
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.02);
+    o.stop(ctx.currentTime + 0.06);
+  } catch (e) { /* already stopped */ }
+}
+
+/* A whole character at a steady speed, which is the only way the rhythm of a
+   letter ever becomes recognisable. */
+function playMorseCode(code) {
+  const ctx = audio();
+  if (!ctx) return;
+  const unit = 0.09;
+  let t = ctx.currentTime + 0.06;
+  for (const sym of code) {
+    const dur = sym === '-' ? unit * 3 : unit;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 620;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.008);
+    g.gain.setValueAtTime(0.12, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.02);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+    t += dur + unit;
+  }
+}
+
+/* Every character, grouped the way charts print them. Tapping one plays it,
+   because a chart you can hear teaches the rhythm and not just the shape. */
+function renderMorseChart() {
+  if (ui.morseChart.childElementCount) return;
+  MORSE_GROUPS.forEach(([title, table]) => {
+    const h = document.createElement('h3');
+    h.className = 'mg-title';
+    h.textContent = title;
+    const grid = document.createElement('div');
+    grid.className = 'morse-grid';
+    Object.keys(table).forEach(k => {
+      const b = document.createElement('button');
+      b.className = 'mg';
+      b.setAttribute('aria-label', k + ', ' + table[k].replace(/\./g, 'dot ').replace(/-/g, 'dash ').trim());
+      const c = document.createElement('b');
+      c.textContent = k;
+      const s = document.createElement('span');
+      s.textContent = morsePretty(table[k]);
+      b.appendChild(c);
+      b.appendChild(s);
+      b.onclick = () => playMorseCode(table[k]);
+      grid.appendChild(b);
+    });
+    ui.morseChart.appendChild(h);
+    ui.morseChart.appendChild(grid);
+  });
+}
+
+function openMorseChart(on) {
+  if (on) renderMorseChart();
+  ui.morseSheet.hidden = !on;
+}
+
+/* ---------------- morse practice ---------------- */
+
+/* Learning Morse needs both directions and neither needs a second phone, so
+   practice lives outside the channel entirely: it never touches the data
+   channel and works with nothing paired. Nothing about it is kept - the
+   streak starts at zero every time. */
+let drillMode = 'send', drillDigits = false, drillMarks = false, drillTarget = '';
+let drillSyms = '', drillDownAt = 0, drillTimer = 0, drillNextTimer = 0;
+let drillStreak = 0, drillBest = 0;
+
+function drillPool() {
+  return MORSE_GROUPS
+    .filter(([title]) => title === 'Letters' ||
+      (title === 'Numbers' && drillDigits) || (title === 'Punctuation' && drillMarks))
+    .flatMap(([, table]) => Object.keys(table));
+}
+
+function renderDrill() {
+  ui.drillSyms.textContent = drillSyms ? morsePretty(drillSyms) : '—';
+  /* Only once something has been keyed, and only from what is being
+     practised: before the first tap the whole pool is just noise. */
+  ui.drillCands.hidden = drillMode !== 'send' || !drillSyms;
+  if (!ui.drillCands.hidden) {
+    const left = morseCandidates(drillSyms, drillPool());
+    ui.drillCands.textContent = left.length
+      ? left.join(' ')
+      : 'nothing has that pattern — pause to clear it';
+  }
+  ui.drillScore.textContent = 'streak ' + drillStreak + ' · best ' + drillBest;
+}
+
+function drillSay(msg, kind) {
+  ui.drillFeedback.textContent = msg;
+  ui.drillFeedback.className = 'drill-feedback' + (kind ? ' ' + kind : '');
+}
+
+function drillRight() {
+  drillStreak++;
+  if (drillStreak > drillBest) drillBest = drillStreak;
+  drillSay('✓ ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]), 'good');
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 900);
+}
+
+function drillWrong(msg) {
+  drillStreak = 0;
+  drillSay('✗ ' + msg, 'bad');
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 2600);
+}
+
+function drillJudgeKeyed() {
+  if (!drillSyms) return;
+  const sent = drillSyms;
+  drillSyms = '';
+  if (sent === MORSE[drillTarget]) { drillRight(); return; }
+  const was = morseLetter(sent);
+  drillWrong('that was ' + morsePretty(sent) + (was ? ' — ' + was : '') +
+             '.  ' + drillTarget + ' is ' + morsePretty(MORSE[drillTarget]));
+}
+
+function drillKeyDown() {
+  clearTimeout(drillTimer);
+  drillDownAt = Date.now();
+  keyToneOn();
+}
+
+function drillKeyUp() {
+  if (!drillDownAt) return;
+  const held = Date.now() - drillDownAt;
+  drillDownAt = 0;
+  keyToneOff();
+  drillSyms += held > DOT_MAX ? '-' : '.';
+  renderDrill();
+  drillTimer = setTimeout(drillJudgeKeyed, LETTER_GAP);
+}
+
+function drillChoose(pick, btn) {
+  Array.from(ui.drillChoices.children).forEach(b => { b.disabled = true; });
+  if (pick === drillTarget) drillRight();
+  else {
+    if (btn) btn.style.borderColor = 'var(--bad)';
+    drillWrong('that was ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]));
+  }
+}
+
+function buildChoices() {
+  const pool = drillPool().filter(k => k !== drillTarget);
+  const picks = [drillTarget];
+  while (picks.length < 4 && pool.length) {
+    picks.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  }
+  for (let i = picks.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = picks[i]; picks[i] = picks[j]; picks[j] = t;
+  }
+  ui.drillChoices.innerHTML = '';
+  picks.forEach(k => {
+    const b = document.createElement('button');
+    b.textContent = k;
+    b.onclick = () => drillChoose(k, b);
+    ui.drillChoices.appendChild(b);
+  });
+}
+
+function nextDrill() {
+  clearTimeout(drillTimer);
+  clearTimeout(drillNextTimer);
+  drillSyms = '';
+  const pool = drillPool();
+  let next = pool[Math.floor(Math.random() * pool.length)];
+  if (pool.length > 1) {
+    while (next === drillTarget) next = pool[Math.floor(Math.random() * pool.length)];
+  }
+  drillTarget = next;
+  drillSay('—');
+
+  const sending = drillMode === 'send';
+  ui.drillPrompt.textContent = sending ? drillTarget : '?';
+  ui.drillSub.textContent = sending ? 'key this one' : 'which one was that?';
+  ui.drillPanel.hidden = !sending;
+  ui.drillKey.hidden = !sending;
+  ui.btnDrillReplay.hidden = sending;
+  ui.drillChoices.hidden = sending;
+  if (!sending) {
+    buildChoices();
+    setTimeout(() => playMorseCode(MORSE[drillTarget]), 260);
+  }
+  renderDrill();
+}
+
+function setDrillMode(m) {
+  drillMode = m;
+  ui.btnDrillSend.setAttribute('aria-pressed', String(m === 'send'));
+  ui.btnDrillHear.setAttribute('aria-pressed', String(m === 'hear'));
+  drillStreak = 0;
+  nextDrill();
+}
+
+function openDrill() {
+  show('drill');
+  /* A tap got us here, so the context is allowed to start now. */
+  audio();
+  setDrillMode(drillMode);
+}
+
+function closeDrill() {
+  clearTimeout(drillTimer);
+  clearTimeout(drillNextTimer);
+  drillDownAt = 0;
+  keyToneOff();
+  openMorseChart(false);
+  show('setup');
+}
+
 /* ---------------- storage ---------------- */
 
 async function renderStorage() {
@@ -1927,7 +2223,10 @@ ui.togHalf.onclick = () => {
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
   'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair',
-  'watching', 'codeCam'].forEach(k => {
+  'watching', 'codeCam', 'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms',
+  'drillCands', 'drillChoices', 'drillKey', 'drillFeedback', 'drillScore', 'btnDrillSend',
+  'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
+  'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -1938,7 +2237,45 @@ ui.btnSettings.onclick = () => openSheet(ui.sheet.hidden);
 ui.btnSheetClose.onclick = () => openSheet(false);
 /* Tapping the backdrop closes it; taps inside the card must not. */
 ui.sheet.addEventListener('click', e => { if (e.target === ui.sheet) openSheet(false); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') openSheet(false); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { openSheet(false); openMorseChart(false); }
+});
+
+ui.btnDrill.onclick = openDrill;
+ui.btnDrillBack.onclick = closeDrill;
+ui.btnDrillSend.onclick = () => setDrillMode('send');
+ui.btnDrillHear.onclick = () => setDrillMode('hear');
+ui.btnDrillDigits.onclick = () => {
+  drillDigits = !drillDigits;
+  ui.btnDrillDigits.setAttribute('aria-pressed', String(drillDigits));
+  nextDrill();
+};
+ui.btnDrillMarks.onclick = () => {
+  drillMarks = !drillMarks;
+  ui.btnDrillMarks.setAttribute('aria-pressed', String(drillMarks));
+  nextDrill();
+};
+ui.btnDrillReplay.onclick = () => playMorseCode(MORSE[drillTarget]);
+ui.btnDrillSkip.onclick = () => {
+  drillStreak = 0;
+  drillSay(drillTarget + '   ' + morsePretty(MORSE[drillTarget]));
+  renderDrill();
+  clearTimeout(drillNextTimer);
+  drillNextTimer = setTimeout(nextDrill, 1400);
+};
+ui.btnDrillChart.onclick = () => openMorseChart(true);
+ui.btnMorseClose.onclick = () => openMorseChart(false);
+ui.morseSheet.addEventListener('click', e => { if (e.target === ui.morseSheet) openMorseChart(false); });
+
+ui.drillKey.addEventListener('contextmenu', e => e.preventDefault());
+ui.drillKey.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { ui.drillKey.setPointerCapture(e.pointerId); } catch (err) {}
+  drillKeyDown();
+});
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {
+  ui.drillKey.addEventListener(type, () => drillKeyUp());
+});
 
 ui.micLvl.addEventListener('input', () => setMicGain(+ui.micLvl.value));
 

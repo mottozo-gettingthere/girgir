@@ -58,8 +58,50 @@
         <button class="btn" id="btnJoin">Join channel</button>
       </div>
       <button class="btn ghost" id="btnGuide">First time? Read the 4-step setup</button>
+      <button class="btn ghost" id="btnDrill">Practise Morse on your own</button>
       <a class="btn ghost" id="linkDiag" href="diag.html">Test this phone</a>
       <p class="note">Both phones must be on the same Wi-Fi or hotspot.</p>
+    </div>
+  </section>
+
+  <!-- ============ MORSE PRACTICE ============ -->
+  <section class="view" id="viewDrill" hidden>
+    <div class="stack">
+      <p class="step">PRACTICE &middot; NO ONE ELSE NEEDED</p>
+
+      <div class="toggles">
+        <button class="tog" id="btnDrillSend" aria-pressed="true">Send it</button>
+        <button class="tog" id="btnDrillHear" aria-pressed="false">Hear it</button>
+        <button class="tog" id="btnDrillDigits" aria-pressed="false">+ numbers</button>
+        <button class="tog" id="btnDrillMarks" aria-pressed="false">+ punctuation</button>
+      </div>
+
+      <div class="drill-card">
+        <span class="drill-prompt" id="drillPrompt">&mdash;</span>
+        <span class="drill-sub" id="drillSub">key this one</span>
+      </div>
+
+      <div class="morse" id="drillPanel">
+        <div class="morse-head">
+          <span class="morse-syms" id="drillSyms">&mdash;</span>
+          <button class="tog tiny" id="btnDrillSkip">Skip</button>
+        </div>
+        <p class="morse-cands" id="drillCands"></p>
+      </div>
+
+      <div class="drill-choices" id="drillChoices" hidden></div>
+      <button class="tog" id="btnDrillReplay" hidden>Play it again</button>
+
+      <button class="talk" id="drillKey">
+        <span class="talk-label">KEY &middot; TAP = DOT &middot; HOLD = DASH</span>
+      </button>
+
+      <p class="drill-feedback" id="drillFeedback">&mdash;</p>
+      <p class="note" id="drillScore">streak 0 &middot; best 0</p>
+      <div class="btn-row">
+        <button class="btn" id="btnDrillChart">Full chart</button>
+        <button class="btn ghost" id="btnDrillBack">Back</button>
+      </div>
     </div>
   </section>
 
@@ -320,6 +362,23 @@
   </section>
 
 </main>
+
+<div class="sheet" id="morseSheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Morse chart">
+    <div class="sheet-head">
+      <h2>Morse chart</h2>
+      <button class="icon-btn" id="btnMorseClose" aria-label="Close chart">&times;</button>
+    </div>
+    <dl class="morse-how">
+      <dt>&middot;</dt><dd>dot &mdash; a quick tap</dd>
+      <dt>&ndash;</dt><dd>dash &mdash; hold about three times as long</dd>
+      <dt>&#8202;</dt><dd>stop for a moment and the character is done</dd>
+    </dl>
+    <p class="note">Tap any character to hear it. Numbers follow a rule: 1&ndash;5 start
+       with that many dots, 6&ndash;0 start with dashes, and every one is five long.</p>
+    <div id="morseChart"></div>
+  </div>
+</div>
 
 <div class="sheet" id="sheet" hidden>
   <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Settings">

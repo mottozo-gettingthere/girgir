@@ -619,3 +619,70 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
 .watch-text { margin: 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
 
 @media (prefers-reduced-motion: reduce) { .watch-cam::after { animation: none; } }
+
+/* ---------------- morse practice ---------------- */
+
+.morse {
+  border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel-2); padding: 10px 12px;
+}
+.morse-head { display: flex; align-items: center; gap: 6px; }
+.morse-syms {
+  flex: 1 1 auto; min-width: 0;
+  font-size: 20px; letter-spacing: 5px; color: var(--tx); min-height: 24px;
+}
+.tog.tiny { flex: 0 0 auto; padding: 5px 9px; font-size: 10px; }
+.morse-cands {
+  margin: 9px 0 0; font-size: 12px; line-height: 1.7;
+  color: var(--muted); word-spacing: 4px; overflow-wrap: anywhere;
+}
+
+.drill-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--panel-2); padding: 18px 12px;
+}
+.drill-prompt { font-size: 52px; line-height: 1; color: var(--tx); letter-spacing: 2px; }
+.drill-sub { font-size: 11px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+
+.drill-choices { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.drill-choices button {
+  font-family: var(--mono); font-size: 22px; padding: 14px 0;
+  border-radius: 10px; background: var(--panel); color: var(--fg);
+  border: 1px solid var(--line); cursor: pointer;
+}
+.drill-choices button:disabled { opacity: 0.45; }
+
+.drill-feedback { margin: 0; min-height: 20px; font-size: 13px; color: var(--muted); }
+.drill-feedback.good { color: var(--rx); }
+.drill-feedback.bad { color: var(--bad); }
+
+/* ---------------- morse chart ---------------- */
+
+.morse-how {
+  display: grid; grid-template-columns: 1.6em 1fr; gap: 4px 8px;
+  margin: 0; font-size: 13px; color: var(--muted);
+}
+.morse-how dt { color: var(--tx); font-family: var(--mono); font-size: 18px; line-height: 1; text-align: center; }
+.morse-how dd { margin: 0; }
+
+.mg-title {
+  margin: 6px 0 8px; font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted);
+}
+.morse-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px;
+}
+.mg {
+  display: flex; align-items: baseline; gap: 10px; min-width: 0;
+  font-family: var(--mono); text-align: left; cursor: pointer;
+  background: var(--panel-2); color: var(--fg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+}
+.mg:active { transform: translateY(1px); }
+.mg b { font-size: 15px; min-width: 12px; }
+.mg span { color: var(--tx); font-size: 15px; letter-spacing: 2px; white-space: nowrap; }
+
+#viewDrill .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#viewDrill .toggles .tog { width: 100%; }
+#drillKey { align-self: center; }

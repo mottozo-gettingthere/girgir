@@ -12,8 +12,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**38 (version 12 code, Wi-Fi routes only)**: 38 is what the updater compares,
-12 is what the code is based on. Two things have been added since the revert:
+**39 (version 12 code, Wi-Fi routes only)**: 39 is what the updater compares,
+12 is what the code is based on. Three things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -33,6 +33,13 @@ shipped as 12 would have reached nobody. Settings therefore reads
   ranges, and edge cases; and ten browser pairings with those addresses
   injected, all linked. Not yet tested: the primary phone itself, which is the
   only test that shows whether this was the cause.
+- **Morse practice and a full chart** (39). *Practise Morse on your own* on
+  the main page needs no second phone. *Send it* shows a character to key
+  (tap for a dot, hold for a dash, pause to finish); *Hear it* plays one and
+  offers four to choose from. *+ numbers* and *+ punctuation* widen the pool.
+  *Full chart* lists all 54 characters - 26 letters, 10 numbers and 18
+  punctuation marks - and plays any one you tap. Nothing is kept: the streak
+  starts at zero each time.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
