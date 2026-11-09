@@ -1,5 +1,11 @@
 # Girgir
 
+> **Pairing failures, 30 October - 9 November 2026:** the cause was one
+> handset's Chrome being unable to reach the local network, not the app.
+> [FINDINGS.md](FINDINGS.md) has what happened, what was measured, and what is
+> still open. Sections further down that describe versions 23-35 describe code
+> no longer in the app, and some of their conclusions turned out wrong.
+
 ## Back on version 12's code, shipped as 36 and up
 
 The app is version 12 again. Everything from 13 to 35 is gone from it: pairing
@@ -18,8 +24,7 @@ shipped as 12 would have reached nobody. Settings therefore reads
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
   linked, has mobile data on alongside Wi-Fi. Its diagnostics show three
-  addresses: its Wi-Fi one, a carrier address and a global
-  IPv6 one. The phone that linked every time showed only its Wi-Fi address.
+  addresses: its Wi-Fi one, a carrier address and a global IPv6 one. The phone that linked every time showed only its Wi-Fi address.
   Version 12 put every address into the code, so the browser could pick a
   route through mobile data or IPv6, have it answer, and then lose it. Every
   description that crosses between the phones - both codes, and the ones
