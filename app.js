@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 39;
+const APP_VERSION = 40;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -38,6 +38,9 @@ const ui = {
   btnDrillReplay: $('btnDrillReplay'), btnDrillSkip: $('btnDrillSkip'),
   btnDrillBack: $('btnDrillBack'), btnDrillChart: $('btnDrillChart'),
   morseSheet: $('morseSheet'), morseChart: $('morseChart'), btnMorseClose: $('btnMorseClose'),
+  btnDrillLive: $('btnDrillLive'), drillTogs: $('drillTogs'), freeKeyer: $('freeKeyer'),
+  freePhrase: $('freePhrase'), btnMorse: $('btnMorse'), callKeyer: $('callKeyer'),
+  callPhrase: $('callPhrase'),
   btnCreate: $('btnCreate'), btnJoin: $('btnJoin'), btnGuide: $('btnGuide'),
   helpBack: $('btnHelpBack'), storeUsed: $('storeUsed'), btnClear: $('btnClear'),
   codeStep: $('codeStep'), codeHint: $('codeHint'), qrCanvas: $('qrCanvas'),
@@ -861,6 +864,19 @@ function wireChannel(channel) {
       toast((peerName || 'They') + ' are re-pairing - tap Join channel', 8000);
     }
     else if (m.t === 'ack') { toast('Ping delivered'); }
+    else if (m.t === 'mword' && callKeyer) {
+      const w = cleanWord(m.w);
+      if (w) {
+        callKeyer.addWord(w, 'them');
+        playSent();
+        buzz(30);
+        if (ui.callKeyer.hidden) toast((peerName || 'They') + ' keyed: ' + w, 4000);
+      }
+    }
+    else if (m.t === 'mclear' && callKeyer) {
+      callKeyer.clearPhrase(false);
+      toast((peerName || 'They') + ' cleared the phrase');
+    }
     else if (m.t === 'hb') { sendCtl({ t: 'hbr', ts: m.ts }); }
     else if (m.t === 'hbr') { rtt = Math.round(performance.now() - m.ts); }
     else if (m.t === 'stat' && m.batt) {
@@ -1764,6 +1780,8 @@ function hangUp() {
   ui.vBattThem.textContent = '—';
   ui.vNet.textContent = '—';
   forgetChannel();
+  if (callKeyer) callKeyer.reset();
+  openCallKeyer(false);
   ui.dropBar.hidden = true;
   setPill('idle', 'IDLE');
   show('setup');
@@ -1814,6 +1832,12 @@ function morsePretty(syms) {
   return syms.replace(/\./g, '·').replace(/-/g, '–');
 }
 
+/* For running text, where letter-spacing does not apply: a thin space keeps
+   two dashes from merging into one long line. */
+function morseSpaced(syms) {
+  return morsePretty(syms).split('').join('\u2009');
+}
+
 let keyOsc = null, keyGain = null;
 
 /* Held down, so it lasts exactly as long as the thumb does - that is the
@@ -1847,10 +1871,21 @@ function keyToneOff() {
 /* A whole character at a steady speed, which is the only way the rhythm of a
    letter ever becomes recognisable. */
 function playMorseCode(code) {
+  playMorsePatterns([code]);
+}
+
+/* A whole word: three units between letters, as on the air. */
+function playMorseWord(word) {
+  playMorsePatterns(word.split('').map(c => MORSE[c]).filter(Boolean));
+}
+
+function playMorsePatterns(codes) {
   const ctx = audio();
   if (!ctx) return;
   const unit = 0.09;
   let t = ctx.currentTime + 0.06;
+  codes.forEach((code, i) => {
+  if (i) t += unit * 2;
   for (const sym of code) {
     const dur = sym === '-' ? unit * 3 : unit;
     const o = ctx.createOscillator(), g = ctx.createGain();
@@ -1865,6 +1900,7 @@ function playMorseCode(code) {
     o.stop(t + dur + 0.05);
     t += dur + unit;
   }
+  });
 }
 
 /* Every character, grouped the way charts print them. Tapping one plays it,
@@ -1918,11 +1954,13 @@ function drillPool() {
 }
 
 function renderDrill() {
-  ui.drillSyms.textContent = drillSyms ? morsePretty(drillSyms) : '—';
+  ui.drillSyms.textContent = drillSyms ? morsePretty(drillSyms) : '';
   /* Only once something has been keyed, and only from what is being
      practised: before the first tap the whole pool is just noise. */
-  ui.drillCands.hidden = drillMode !== 'send' || !drillSyms;
-  if (!ui.drillCands.hidden) {
+  const hint = drillMode === 'send' && !!drillSyms;
+  /* Hidden but still taking its room, so the key stays put. */
+  ui.drillCands.style.visibility = hint ? '' : 'hidden';
+  if (hint) {
     const left = morseCandidates(drillSyms, drillPool());
     ui.drillCands.textContent = left.length
       ? left.join(' ')
@@ -1939,7 +1977,7 @@ function drillSay(msg, kind) {
 function drillRight() {
   drillStreak++;
   if (drillStreak > drillBest) drillBest = drillStreak;
-  drillSay('✓ ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]), 'good');
+  drillSay('✓ ' + drillTarget + '   ' + morseSpaced(MORSE[drillTarget]), 'good');
   renderDrill();
   clearTimeout(drillNextTimer);
   drillNextTimer = setTimeout(nextDrill, 900);
@@ -1959,8 +1997,8 @@ function drillJudgeKeyed() {
   drillSyms = '';
   if (sent === MORSE[drillTarget]) { drillRight(); return; }
   const was = morseLetter(sent);
-  drillWrong('that was ' + morsePretty(sent) + (was ? ' — ' + was : '') +
-             '.  ' + drillTarget + ' is ' + morsePretty(MORSE[drillTarget]));
+  drillWrong('you keyed ' + morseSpaced(sent) + (was ? ' (' + was + ')' : ' (no character)') +
+             '.  ' + drillTarget + ' is ' + morseSpaced(MORSE[drillTarget]));
 }
 
 function drillKeyDown() {
@@ -1984,7 +2022,7 @@ function drillChoose(pick, btn) {
   if (pick === drillTarget) drillRight();
   else {
     if (btn) btn.style.borderColor = 'var(--bad)';
-    drillWrong('that was ' + drillTarget + '   ' + morsePretty(MORSE[drillTarget]));
+    drillWrong('it was ' + drillTarget + '   ' + morseSpaced(MORSE[drillTarget]));
   }
 }
 
@@ -2011,13 +2049,14 @@ function nextDrill() {
   clearTimeout(drillTimer);
   clearTimeout(drillNextTimer);
   drillSyms = '';
+  if (drillMode === 'live') { if (freeKeyer) freeKeyer.refresh(); return; }
   const pool = drillPool();
   let next = pool[Math.floor(Math.random() * pool.length)];
   if (pool.length > 1) {
     while (next === drillTarget) next = pool[Math.floor(Math.random() * pool.length)];
   }
   drillTarget = next;
-  drillSay('—');
+  drillSay('');
 
   const sending = drillMode === 'send';
   ui.drillPrompt.textContent = sending ? drillTarget : '?';
@@ -2037,6 +2076,16 @@ function setDrillMode(m) {
   drillMode = m;
   ui.btnDrillSend.setAttribute('aria-pressed', String(m === 'send'));
   ui.btnDrillHear.setAttribute('aria-pressed', String(m === 'hear'));
+  ui.btnDrillLive.setAttribute('aria-pressed', String(m === 'live'));
+  const liveKey = m === 'live';
+  document.querySelectorAll('#viewDrill .drill-only').forEach(el => { el.hidden = liveKey; });
+  ui.freeKeyer.hidden = !liveKey;
+  ui.freePhrase.hidden = !liveKey;
+  if (!liveKey && freeKeyer) freeKeyer.stop();
+  if (liveKey) {
+    ui.drillPanel.hidden = ui.drillKey.hidden = ui.drillChoices.hidden = true;
+    ui.btnDrillReplay.hidden = true;
+  }
   drillStreak = 0;
   nextDrill();
 }
@@ -2053,8 +2102,270 @@ function closeDrill() {
   clearTimeout(drillNextTimer);
   drillDownAt = 0;
   keyToneOff();
+  if (freeKeyer) freeKeyer.reset();
   openMorseChart(false);
   show('setup');
+}
+
+/* ---------------- live keyer ---------------- */
+
+/* Free keying with the chart folded in. As each dot or dash goes in, the
+   guide narrows to the characters still possible and shows, for each, what is
+   left to key. A pause commits the character to the word; the done button
+   moves the word into the phrase. The same keyer serves practice (Live) and
+   the call (Morse), where every finished word goes to the other phone too.
+
+   The phrase lives in memory only: it is gone when the call ends, practice is
+   closed or the page goes away. Nothing is written anywhere. */
+const PHRASE_MAX = 80;
+const WORD_MAX = 40;
+
+let freeKeyer = null, callKeyer = null;
+
+function cleanWord(w) {
+  return String(w || '').toUpperCase().split('').filter(c => MORSE[c]).join('').slice(0, WORD_MAX);
+}
+
+function makeKeyer(root, opts) {
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  root.classList.add('kx');
+  root.innerHTML = '';
+
+  const panel = el('div', 'morse kx-panel');
+  const line = el('div', 'kx-line');
+  const wordEl = el('span', 'kx-word');
+  const symsEl = el('span', 'kx-syms');
+  line.append(wordEl, symsEl);
+  const nextEl = el('p', 'kx-next');
+  const guideEl = el('div', 'kx-guide');
+  panel.append(line, nextEl, guideEl);
+
+  const row = el('div', 'kx-row');
+  const togGuide = el('button', 'tog tiny', 'Guide');
+  row.append(togGuide);
+  let togNum = null, togPunct = null;
+  if (opts.toggles) {
+    togNum = el('button', 'tog tiny', '+ numbers');
+    togPunct = el('button', 'tog tiny', '+ punctuation');
+    row.append(togNum, togPunct);
+  }
+
+  const key = el('button', 'talk kx-key');
+  key.append(el('span', 'talk-label', 'KEY · TAP = DOT · HOLD = DASH'));
+
+  const actions = el('div', 'kx-actions');
+  const btnBack = el('button', 'tog kx-back', '⌫');
+  btnBack.setAttribute('aria-label', 'Delete the last character');
+  const btnDone = el('button', 'btn primary', opts.doneLabel);
+  const btnClear = el('button', 'tog', 'Clear');
+  actions.append(btnBack, btnDone, btnClear);
+
+  root.append(panel, row, key, actions);
+
+  let syms = '', word = '', phrase = [], note = '';
+  let downAt = 0, gapTimer = 0, clearArmed = 0;
+  let guideOn = true, withNum = false, withPunct = false;
+
+  function pool() {
+    if (opts.pool) return opts.pool();
+    return MORSE_GROUPS
+      .filter(([t]) => t === 'Letters' || (t === 'Numbers' && withNum) || (t === 'Punctuation' && withPunct))
+      .flatMap(([, table]) => Object.keys(table));
+  }
+
+  function chip(ch) {
+    const code = MORSE[ch];
+    const b = el('button', 'kx-chip');
+    b.append(el('b', null, ch));
+    if (syms) b.append(el('span', 'done', morsePretty(syms)));
+    const rest = code.slice(syms.length);
+    if (rest) b.append(el('span', 'left', morsePretty(rest)));
+    else { b.classList.add('now'); b.append(el('span', 'left', 'pause')); }
+    b.setAttribute('aria-label', ch + (rest ? ', then ' + rest.replace(/\./g, 'dot ').replace(/-/g, 'dash ').trim() : ', pause now'));
+    b.onclick = () => playMorseCode(code);
+    return b;
+  }
+
+  function render() {
+    wordEl.textContent = word;
+    symsEl.textContent = syms ? morsePretty(syms) : '';
+    line.classList.toggle('empty', !word && !syms);
+
+    panel.classList.toggle('no-guide', !guideOn);
+    togGuide.setAttribute('aria-pressed', String(guideOn));
+    if (togNum) togNum.setAttribute('aria-pressed', String(withNum));
+    if (togPunct) togPunct.setAttribute('aria-pressed', String(withPunct));
+
+    const order = pool();
+    let cands = order.filter(k => MORSE[k].indexOf(syms) === 0);
+    /* Keying a number with numbers switched off still works; the guide just
+       follows along once nothing in the chosen set fits. */
+    if (!cands.length) cands = Object.keys(MORSE).filter(k => MORSE[k].indexOf(syms) === 0);
+    cands.sort((a, b) => MORSE[a].length - MORSE[b].length || order.indexOf(a) - order.indexOf(b));
+
+    nextEl.textContent = '';
+    if (note) {
+      nextEl.textContent = note;
+    } else if (!syms) {
+      nextEl.textContent = word ? 'Next character, or ' + opts.doneLabel.toLowerCase() + ' to finish the word'
+                                : 'Start with a dot or a dash';
+    } else if (!cands.length) {
+      nextEl.textContent = 'No character starts ' + morseSpaced(syms) + ' — pause to drop it';
+    } else {
+      const exact = morseLetter(syms);
+      /* What each next move leads to: the characters themselves while they
+         fit on the line, a count once there are too many to read. */
+      const after = s => {
+        const list = cands.filter(k => MORSE[k].indexOf(syms + s) === 0);
+        return list.length <= 5 ? list.join(' ') : list.length + ' more';
+      };
+      const dot = after('.'), dash = after('-');
+      const bits = [];
+      if (exact) bits.push(['pause', exact]);
+      if (dot) bits.push(['·', dot]);
+      if (dash) bits.push(['–', dash]);
+      bits.forEach(([k, v], i) => {
+        if (i) nextEl.append('   ');
+        nextEl.append(el('b', null, k), ' → ' + v);
+      });
+    }
+
+    guideEl.innerHTML = '';
+    if (guideOn) cands.forEach(k => guideEl.append(chip(k)));
+  }
+
+  function renderPhrase() {
+    const p = opts.phraseEl;
+    p.innerHTML = '';
+    if (!phrase.length) p.append(el('span', 'empty', opts.emptyText));
+    phrase.forEach(({ w, who }) => {
+      const b = el('button', 'kx-w ' + who, w);
+      b.setAttribute('aria-label', (who === 'them' ? 'their word ' : 'your word ') + w + ', tap to hear it');
+      b.onclick = () => playMorseWord(w);
+      p.append(b, ' ');
+    });
+    if (opts.onPhrase) opts.onPhrase(phrase.length);
+  }
+
+  function commit() {
+    clearTimeout(gapTimer);
+    if (!syms) return;
+    const ch = morseLetter(syms);
+    if (ch && word.length < WORD_MAX) { word += ch; note = ''; }
+    else if (!ch) note = morseSpaced(syms) + ' is not a character — dropped';
+    syms = '';
+    render();
+  }
+
+  function down() {
+    clearTimeout(gapTimer);
+    note = '';
+    downAt = Date.now();
+    keyToneOn();
+  }
+
+  function up() {
+    if (!downAt) return;
+    const held = Date.now() - downAt;
+    downAt = 0;
+    keyToneOff();
+    syms += held > DOT_MAX ? '-' : '.';
+    render();
+    gapTimer = setTimeout(commit, LETTER_GAP);
+  }
+
+  function addWord(w, who) {
+    phrase.push({ w, who });
+    if (phrase.length > PHRASE_MAX) phrase.splice(0, phrase.length - PHRASE_MAX);
+    renderPhrase();
+  }
+
+  function done() {
+    commit();
+    if (!word) return;
+    const w = word;
+    word = '';
+    addWord(w, 'you');
+    if (opts.onWord) opts.onWord(w);
+    render();
+  }
+
+  function clearPhrase(tell) {
+    phrase = [];
+    renderPhrase();
+    if (tell && opts.onClear) opts.onClear();
+  }
+
+  function stop() {
+    clearTimeout(gapTimer);
+    downAt = 0;
+    keyToneOff();
+  }
+
+  key.addEventListener('contextmenu', e => e.preventDefault());
+  key.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    try { key.setPointerCapture(e.pointerId); } catch (err) {}
+    down();
+  });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => key.addEventListener(t, up));
+
+  togGuide.onclick = () => { guideOn = !guideOn; render(); };
+  if (togNum) togNum.onclick = () => { withNum = !withNum; render(); };
+  if (togPunct) togPunct.onclick = () => { withPunct = !withPunct; render(); };
+  btnBack.onclick = () => {
+    clearTimeout(gapTimer);
+    note = '';
+    if (syms) syms = '';
+    else word = word.slice(0, -1);
+    render();
+  };
+  btnDone.onclick = done;
+  /* Clearing reaches the other phone too, so it takes a second tap. */
+  btnClear.onclick = () => {
+    if (!phrase.length) return;
+    if (Date.now() - clearArmed > 3000) {
+      clearArmed = Date.now();
+      btnClear.textContent = 'Sure?';
+      setTimeout(() => { if (Date.now() - clearArmed >= 3000) btnClear.textContent = 'Clear'; }, 3100);
+      return;
+    }
+    clearArmed = 0;
+    btnClear.textContent = 'Clear';
+    clearPhrase(true);
+  };
+
+  render();
+  renderPhrase();
+
+  return {
+    refresh: render,
+    stop,
+    addWord,
+    clearPhrase,
+    count: () => phrase.length,
+    reset() { stop(); syms = ''; word = ''; note = ''; phrase = []; render(); renderPhrase(); }
+  };
+}
+
+function updateCallPhrase() {
+  ui.callPhrase.hidden = ui.callKeyer.hidden && !(callKeyer && callKeyer.count());
+}
+
+function openCallKeyer(on) {
+  ui.callKeyer.hidden = !on;
+  ui.btnMorse.setAttribute('aria-pressed', String(on));
+  if (!on && callKeyer) callKeyer.stop();
+  updateCallPhrase();
+  if (on) {
+    audio();
+    ui.callPhrase.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
 }
 
 /* ---------------- storage ---------------- */
@@ -2226,7 +2537,9 @@ ui.togHalf.onclick = () => {
   'watching', 'codeCam', 'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms',
   'drillCands', 'drillChoices', 'drillKey', 'drillFeedback', 'drillScore', 'btnDrillSend',
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
-  'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose'].forEach(k => {
+  'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose',
+  'btnDrillLive', 'drillTogs', 'freeKeyer', 'freePhrase', 'btnMorse', 'callKeyer',
+  'callPhrase'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -2241,7 +2554,25 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { openSheet(false); openMorseChart(false); }
 });
 
+freeKeyer = makeKeyer(ui.freeKeyer, {
+  doneLabel: 'Word done',
+  emptyText: 'Finished words build up here. Tap one to hear it.',
+  phraseEl: ui.freePhrase,
+  pool: drillPool
+});
+callKeyer = makeKeyer(ui.callKeyer, {
+  doneLabel: 'Send word',
+  emptyText: 'Finished words show here on both phones: yours amber, theirs teal.',
+  phraseEl: ui.callPhrase,
+  toggles: true,
+  onWord: w => sendCtl({ t: 'mword', w }),
+  onClear: () => sendCtl({ t: 'mclear' }),
+  onPhrase: updateCallPhrase
+});
+ui.btnMorse.onclick = () => openCallKeyer(ui.callKeyer.hidden);
+
 ui.btnDrill.onclick = openDrill;
+ui.btnDrillLive.onclick = () => setDrillMode('live');
 ui.btnDrillBack.onclick = closeDrill;
 ui.btnDrillSend.onclick = () => setDrillMode('send');
 ui.btnDrillHear.onclick = () => setDrillMode('hear');

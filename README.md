@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**39 (version 12 code, Wi-Fi routes only)**: 39 is what the updater compares,
-12 is what the code is based on. Three things have been added since the revert:
+**40 (version 12 code, Wi-Fi routes only)**: 40 is what the updater compares,
+12 is what the code is based on. Four things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -45,6 +45,27 @@ shipped as 12 would have reached nobody. Settings therefore reads
   *Full chart* lists all 54 characters - 26 letters, 10 numbers and 18
   punctuation marks - and plays any one you tap. Nothing is kept: the streak
   starts at zero each time.
+- **Live keying, words and a shared phrase** (40). A live keyer with the chart
+  folded in: after each dot or dash, the guide shows only the characters still
+  possible and, for each, what is left to key (or *pause* when it is already
+  complete), with a line saying where a dot, a dash or a pause leads next. A
+  pause commits the character to the word; the done button moves the word into
+  the phrase. *Guide* turns the help off once it is no longer needed, and ⌫
+  takes back the last character. It is in practice as a third mode, *Live*,
+  and in a call behind **Morse**, where *Send word* puts each finished word on
+  both phones: yours in amber, theirs in teal, the colours of the YOU and THEM
+  meters. Tap any word to hear it. *Clear* takes two taps and clears both
+  phones. The phrase is held in memory only and is gone when the call ends or
+  the page closes. A phone on an older build simply ignores the words.
+
+  Also in 40, three fixes to *Send it*: the empty strip says "tap the key"
+  instead of showing a mark that read as a dash; a wrong answer reads "you
+  keyed · · (I). M is – –" with the dashes kept apart; and the key no longer
+  jumps down when the hints appear.
+
+  Tested: two browser tabs paired on the Mac, words sent both ways, backspace,
+  a pattern that is not a character, clearing from either side, and End
+  wiping the phrase. Not yet tested on the phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

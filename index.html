@@ -69,21 +69,27 @@
     <div class="stack">
       <p class="step">PRACTICE &middot; NO ONE ELSE NEEDED</p>
 
-      <div class="toggles">
+      <div class="toggles three" role="group" aria-label="Practice mode">
         <button class="tog" id="btnDrillSend" aria-pressed="true">Send it</button>
         <button class="tog" id="btnDrillHear" aria-pressed="false">Hear it</button>
+        <button class="tog" id="btnDrillLive" aria-pressed="false">Live</button>
+      </div>
+      <div class="toggles" id="drillTogs">
         <button class="tog" id="btnDrillDigits" aria-pressed="false">+ numbers</button>
         <button class="tog" id="btnDrillMarks" aria-pressed="false">+ punctuation</button>
       </div>
 
-      <div class="drill-card">
+      <div class="kx-phrase" id="freePhrase" aria-live="polite" hidden></div>
+      <div id="freeKeyer" hidden></div>
+
+      <div class="drill-card drill-only">
         <span class="drill-prompt" id="drillPrompt">&mdash;</span>
         <span class="drill-sub" id="drillSub">key this one</span>
       </div>
 
       <div class="morse" id="drillPanel">
         <div class="morse-head">
-          <span class="morse-syms" id="drillSyms">&mdash;</span>
+          <span class="morse-syms" id="drillSyms"></span>
           <button class="tog tiny" id="btnDrillSkip">Skip</button>
         </div>
         <p class="morse-cands" id="drillCands"></p>
@@ -96,8 +102,8 @@
         <span class="talk-label">KEY &middot; TAP = DOT &middot; HOLD = DASH</span>
       </button>
 
-      <p class="drill-feedback" id="drillFeedback">&mdash;</p>
-      <p class="note" id="drillScore">streak 0 &middot; best 0</p>
+      <p class="drill-feedback drill-only" id="drillFeedback"></p>
+      <p class="note drill-only" id="drillScore">streak 0 &middot; best 0</p>
       <div class="btn-row">
         <button class="btn" id="btnDrillChart">Full chart</button>
         <button class="btn ghost" id="btnDrillBack">Back</button>
@@ -356,8 +362,12 @@
 
     <div class="toggles">
       <button class="tog" id="btnRelink">Relink</button>
+      <button class="tog" id="btnMorse" aria-pressed="false">Morse</button>
       <button class="tog danger" id="btnHangup">End</button>
     </div>
+
+    <div class="kx-phrase" id="callPhrase" aria-live="polite" hidden></div>
+    <div id="callKeyer" hidden></div>
 
   </section>
 
