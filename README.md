@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**40 (version 12 code, Wi-Fi routes only)**: 40 is what the updater compares,
-12 is what the code is based on. Four things have been added since the revert:
+**41 (version 12 code, Wi-Fi routes only)**: 41 is what the updater compares,
+12 is what the code is based on. Five things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -66,6 +66,26 @@ shipped as 12 would have reached nobody. Settings therefore reads
   Tested: two browser tabs paired on the Mac, words sent both ways, backspace,
   a pattern that is not a character, clearing from either side, and End
   wiping the phrase. Not yet tested on the phones.
+- **Asking for local network access** (41). The primary phone runs Android 17,
+  which keeps apps off the local network without a *Nearby devices*
+  permission, and Chrome is adding a per-site *Local network* permission.
+  A page cannot grant either; it can ask. Create and Join now make one
+  request marked for the local network (to the phone's own address, where
+  nothing listens), which is what brings up Chrome's question, without
+  holding pairing up. If a connection then fails and the browser reports the
+  permission off, the app says so and where to allow it, instead of a bare
+  LOST. The permission being off is not reported earlier: the browser on the
+  Mac reports it off and still pairs.
+
+  `diag.html` gains *Test local network access*: the permission as the
+  browser reports it, the phone's Wi-Fi address, and a knock on the router
+  (`.1` of that address) - the first test there that leaves the handset. The
+  self-pairing verdict no longer says "This phone can pair": the primary
+  passes it while unable to reach any other device.
+
+  Tested: pairing still links in two tabs with the request in place, and the
+  new test runs. Not tested: whether Android Chrome or Samsung Internet show
+  the question at all, and whether allowing it lets the primary pair.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

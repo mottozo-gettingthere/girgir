@@ -39,6 +39,7 @@
 <button id="bBuzz">Test vibration</button>
 <button id="bTone">Test tone</button>
 <button id="bNet">Test local address</button>
+<button id="bLan">Test local network access</button>
 <button id="bScan">Test QR scanner</button>
 <button id="bPair">Test pairing on this phone</button>
 <div id="live"></div>
@@ -232,8 +233,9 @@ document.getElementById('bPair').onclick = async () => {
     row('Control channel', opened, opened ? 'open' : 'never opened', live);
 
     if (A.connectionState === 'connected') {
-      row('Verdict', 'OK', 'This phone can pair. A failure with another phone is ' +
-          'between the two of them, not in this handset.', live);
+      row('Verdict', 'OK', 'This phone links to itself. That never leaves the handset, ' +
+          'so it cannot show whether the browser is allowed to reach another phone: ' +
+          'Test local network access checks that.', live);
     } else if (!tried) {
       row('Verdict', 'NO', 'This phone will not try a route even to itself. A VPN ' +
           'holding the route does this, and so does a browser that has filtered ' +
@@ -415,6 +417,72 @@ function classify(a) {
   if (p[0] === 25) return ['vpn', 'a VPN range'];
   return ['public', 'a public address \u2014 mobile data, or a VPN'];
 }
+
+
+/* The self-test above pairs the phone with itself, which never leaves the
+   handset, so a browser that is shut out of the local network still passes
+   it. This one goes out: it reads the browser's local network permission,
+   asks for it the way Chrome expects, and knocks on the router. */
+async function lnaState() {
+  if (!navigator.permissions || !navigator.permissions.query) return ['unknown', ''];
+  for (const name of ['local-network', 'local-network-access']) {
+    try { return [(await navigator.permissions.query({ name })).state, name]; } catch (e) {}
+  }
+  return ['unknown', ''];
+}
+async function privateAddr() {
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  pc.createDataChannel('probe');
+  const found = new Promise(resolve => {
+    pc.onicecandidate = ev => {
+      if (!ev.candidate) { resolve(''); return; }
+      const m = / (\d+\.\d+\.\d+\.\d+) \d+ typ host/.exec(ev.candidate.candidate);
+      if (m && classify(m[1])[0] === 'lan') resolve(m[1]);
+    };
+    setTimeout(() => resolve(''), 2500);
+  });
+  await pc.setLocalDescription(await pc.createOffer());
+  const ip = await found;
+  pc.close();
+  return ip;
+}
+async function knock(url, ms) {
+  const stop = new AbortController();
+  const t = setTimeout(() => stop.abort(), ms);
+  const t0 = performance.now();
+  try {
+    await fetch(url, { targetAddressSpace: 'local', mode: 'no-cors', cache: 'no-store', signal: stop.signal });
+    return [true, 'answered after ' + Math.round(performance.now() - t0) + ' ms'];
+  } catch (e) {
+    return [false, e.name === 'AbortError' ? 'no answer in ' + (ms / 1000) + ' s'
+                                           : 'failed after ' + Math.round(performance.now() - t0) + ' ms'];
+  } finally { clearTimeout(t); }
+}
+const lanTag = s => s === 'granted' ? true : s === 'denied' ? false : s;
+document.getElementById('bLan').onclick = async () => {
+  live.innerHTML = '';
+  const [before, name] = await lnaState();
+  row('Local network permission', lanTag(before),
+      !name ? 'this browser does not report one'
+        : before === 'denied' ? 'off for this site. Some browsers still connect with it off; ' +
+                                'if pairing fails, allow "Local network" in site settings'
+        : 'as the browser reports it ("' + name + '")', live);
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+  } catch (e) { /* the address may then be hidden */ }
+  const ip = await privateAddr();
+  row('Wi-Fi address', !!ip, ip || 'none found — allow the microphone, and check Wi-Fi is on', live);
+  if (!ip) return;
+  const gw = ip.replace(/\.\d+$/, '.1');
+  const [ok, how] = await knock('http://' + gw + '/', 8000);
+  row('Router at ' + gw + ' answered', ok,
+      ok ? how + ' — this browser reaches the local network'
+         : how + '. On home Wi-Fi that points to the browser being kept off the local network. ' +
+           'On a phone hotspot nothing listens at .1, so it means nothing there.', live);
+  const [after] = await lnaState();
+  if (after !== before) row('Permission after asking', lanTag(after), 'changed from ' + before, live);
+};
 
 document.getElementById('bBuzz').onclick = () => {
   live.innerHTML = '';

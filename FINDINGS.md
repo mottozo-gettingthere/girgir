@@ -160,9 +160,24 @@ These are mine, recorded so they are not repeated.
   since that route leads nowhere, but it means the filter cannot tell a carrier
   network from a home one by address alone.
 
+## Later: 15 November
+
+- The primary failed again, with a friend's iPhone on the primary's own
+  hotspot, in several browsers and as an installed app on both phones.
+- The primary (Galaxy S25) runs **Android 17**. From Android 17, apps built
+  for it reach the local network only with the *Nearby devices* permission.
+  That fits everything measured on 9 November, but it is not confirmed: the
+  permission's state for Chrome and Samsung Internet has not been read yet.
+- Its diagnostics in Samsung Internet 31 showed a Wi-Fi address, a carrier
+  NAT address (`100.64.0.0/10` range) and a global IPv6 address, and passed the
+  self-pairing test - which cannot see this fault (see *Still open*).
+- Build 41 asks for the browser's local network permission when pairing and
+  adds an outward test to `diag.html`.
+
 ## Where the app stands
 
-Build 39 is version 12's code plus three things: the *Test this phone* link
-(37), Wi-Fi-only routes in the codes (38), and Morse practice with a full chart
-(39). Everything from 13 to 35 is out, and kept under the git tag
+Build 41 is version 12's code plus: the *Test this phone* link (37), Wi-Fi-only
+routes in the codes (38), Morse practice with a full chart (39), live keying
+with words and a shared phrase (40), and the local network permission request
+(41). Everything from 13 to 35 is out, and kept under the git tag
 `v35-diagnostics`.

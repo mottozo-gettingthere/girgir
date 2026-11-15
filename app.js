@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 40;
+const APP_VERSION = 41;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -1337,6 +1337,8 @@ function newPeer() {
       goLive();
     } else if (s === 'failed' || s === 'disconnected') {
       setPill('lost', s === 'failed' ? 'LOST' : 'DROPPED');
+      /* Say so when the cause is known, instead of a bare LOST. */
+      if (s === 'failed') localNetState().then(st => { if (st === 'denied') toast(LNA_BLOCKED, 12000); });
       scheduleRecovery();
     }
   };
@@ -1392,6 +1394,7 @@ async function host(step, hint) {
     toast('Microphone blocked. Allow it in site settings.', 5000);
     return;
   }
+  checkLocalNetwork();
   teardownPeer();
   setPill('pairing', step === 'STANDBY' ? 'STANDBY' : 'PAIRING');
   amOfferer = true;
@@ -1445,6 +1448,7 @@ async function joinChannel() {
     toast('Microphone blocked. Allow it in site settings.', 5000);
     return;
   }
+  checkLocalNetwork();
   setPill('pairing', 'PAIRING');
   openScanner('STEP 1 OF 2', 'Scan the code on the other phone.', takeOffer);
 }
@@ -1785,6 +1789,81 @@ function hangUp() {
   ui.dropBar.hidden = true;
   setPill('idle', 'IDLE');
   show('setup');
+}
+
+/* ---------------- local network permission ---------------- */
+
+/* Android 17 keeps an app off the local network unless it holds the "nearby
+   devices" permission, and Chrome is adding a matching per-site "local
+   network" permission. A web page cannot grant either one; it can only ask,
+   the way it asks for the microphone. Chrome asks when a page makes a request
+   marked as bound for the local network, so this makes one such request - to
+   this phone's own Wi-Fi address, where nothing is listening - purely to bring
+   the question up. A browser without the permission ignores the marking and
+   the request simply fails, which costs nothing. */
+const LNA_NAMES = ['local-network', 'local-network-access'];
+let lnaAsked = false;
+
+async function localNetState() {
+  if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+  for (const name of LNA_NAMES) {
+    try { return (await navigator.permissions.query({ name })).state; } catch (e) { /* not this name */ }
+  }
+  return 'unknown';
+}
+
+/* The phone's own private IPv4 address, read from a throwaway connection.
+   With the microphone allowed, browsers show the real address rather than a
+   .local name. */
+async function ownPrivateAddr() {
+  let probe;
+  try {
+    probe = new RTCPeerConnection({ iceServers: [] });
+    probe.createDataChannel('probe');
+    const found = new Promise(resolve => {
+      probe.onicecandidate = ev => {
+        if (!ev.candidate) { resolve(''); return; }
+        const m = / (\d+\.\d+\.\d+\.\d+) \d+ typ host/.exec(ev.candidate.candidate);
+        if (m && isLocalAddr(m[1])) resolve(m[1]);
+      };
+      setTimeout(() => resolve(''), 2000);
+    });
+    await probe.setLocalDescription(await probe.createOffer());
+    return await found;
+  } catch (e) {
+    return '';
+  } finally {
+    try { probe && probe.close(); } catch (e) {}
+  }
+}
+
+async function askLocalNetwork() {
+  const state = await localNetState();
+  if (state === 'granted' || state === 'denied' || lnaAsked) return state;
+  lnaAsked = true;
+  const ip = await ownPrivateAddr();
+  if (ip) {
+    const stop = new AbortController();
+    const t = setTimeout(() => stop.abort(), 30000);
+    try {
+      await fetch('http://' + ip + '/', {
+        targetAddressSpace: 'local', mode: 'no-cors', cache: 'no-store', signal: stop.signal
+      });
+    } catch (e) { /* nothing listens there; only the question mattered */ }
+    clearTimeout(t);
+  }
+  return localNetState();
+}
+
+const LNA_BLOCKED = 'Could not reach the other phone, and this site’s "Local network" ' +
+  'permission is off. Allow it in the browser’s site settings, then pair again.';
+
+/* Asked alongside the microphone, without holding pairing up: the code can
+   be shown and scanned while the question is on screen. A "denied" is not
+   reported here - some browsers connect with it off - only once a
+   connection has actually failed. */
+function checkLocalNetwork() {
+  askLocalNetwork().catch(() => {});
 }
 
 /* ---------------- morse ---------------- */
