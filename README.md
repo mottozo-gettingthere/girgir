@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**44 (version 12 code, Wi-Fi routes only)**: 44 is what the updater compares,
-12 is what the code is based on. Eight things have been added since the revert:
+**45 (version 12 code, Wi-Fi routes only)**: 45 is what the updater compares,
+12 is what the code is based on. Nine things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -133,6 +133,20 @@ shipped as 12 would have reached nobody. Settings therefore reads
   "leave" ends it, the other tab drops and stays guarded, and End leaves no
   question behind. The close check could not be tried there. Not tested on
   the phones.
+- **Picking the camera that autofocuses** (45). On the primary, *Test camera
+  focus* shows the camera Chrome opens offering manual focus only, and the
+  next one in the list offering autofocus - the sharp one. So when the
+  browser's pick offers focus modes but not autofocus, the scanner tries the
+  other cameras labelled as back ones, in list order, and keeps the first
+  that autofocuses for the session. Browsers that report no focus modes, and
+  phones whose cameras are not labelled front and back, are left alone, so a
+  front camera is never chosen. *Switch camera* still overrides it.
+
+  Tested on the Mac with fake cameras: wide (manual) then front then main
+  (autofocus) picks main and skips front, and the next scan opens main
+  directly; unlabelled cameras and a first pick that already autofocuses
+  are left alone; cancelling mid-search leaves no camera on and no error.
+  Not tested on the primary.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

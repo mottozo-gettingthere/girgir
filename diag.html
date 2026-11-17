@@ -364,7 +364,7 @@ async function camOpen(deviceId) {
   camAt = camList.findIndex(d => d.deviceId === set.deviceId);
 
   row('Camera opened', true, (track.label || 'no name given') +
-      (deviceId ? '' : ' — the one the app opens for scanning'), live);
+      (deviceId ? '' : ' — the browser’s own pick for the back camera'), live);
   row('Cameras listed', String(camList.length || '?'),
       camList.map((d, i) => (i === camAt ? '▸ ' : '  ') + (i + 1) + '. ' + (d.label || 'no name'))
              .join('  ·  '), live);

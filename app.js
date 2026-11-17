@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 44;
+const APP_VERSION = 45;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -1587,6 +1587,49 @@ async function backCameras() {
   return back.length >= 2 ? back : devs;
 }
 
+function focusModesOf(stream) {
+  try {
+    const t = stream.getVideoTracks()[0];
+    const m = t.getCapabilities && t.getCapabilities().focusMode;
+    return Array.isArray(m) ? m : null;
+  } catch (e) { return null; }
+}
+
+/* On the S25 the camera Chrome opens reports manual focus only, and the next
+   back camera reports autofocus and reads at once. So when the browser's pick
+   offers focus modes but not autofocus, try the other cameras labelled as
+   back ones, in the order listed, and keep the first that autofocuses. A
+   browser that reports no focus modes at all is left alone, and so is any
+   phone whose cameras are not labelled front and back - a front camera must
+   never be picked for this. If none does better, the original is reopened. */
+let camEpoch = 0;
+async function preferFocusing(stream) {
+  const modes = focusModesOf(stream);
+  if (!modes || !modes.length || modes.includes('continuous')) return stream;
+  let devs = [];
+  try {
+    devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  } catch (e) { devs = []; }
+  const cur = stream.getVideoTracks()[0].getSettings().deviceId;
+  const others = devs.filter(d => d.deviceId !== cur && /back|rear|environment/i.test(d.label));
+  if (!others.length) return stream;
+  stream.getTracks().forEach(t => t.stop());
+  for (const d of others) {
+    let s = null;
+    try { s = await navigator.mediaDevices.getUserMedia(camConstraints(d.deviceId)); }
+    catch (e) { s = null; }
+    if (!s) continue;
+    const m = focusModesOf(s);
+    if (m && m.includes('continuous')) { camChoice = d.deviceId; return s; }
+    s.getTracks().forEach(t => t.stop());
+  }
+  try { return await navigator.mediaDevices.getUserMedia(camConstraints(cur)); }
+  catch (e) {
+    try { return await navigator.mediaDevices.getUserMedia(camConstraints(null)); }
+    catch (e2) { return null; }
+  }
+}
+
 function switchButtonFor(videoEl) {
   return videoEl === ui.cam ? ui.btnCamSwitch : ui.btnCamSwitch2;
 }
@@ -1645,14 +1688,24 @@ async function startCamera(videoEl) {
     try { await loadJsQR(); }
     catch (e) { toast('QR reader unavailable - paste the code instead', 5000); }
   }
+  const epoch = camEpoch;
+  let stream = null;
   try {
-    scanStream = await navigator.mediaDevices.getUserMedia(camConstraints(camChoice));
+    stream = await navigator.mediaDevices.getUserMedia(camConstraints(camChoice));
   } catch (e) {
     if (!camChoice) return { ok: false, detector: null };
     camChoice = null;
-    try { scanStream = await navigator.mediaDevices.getUserMedia(camConstraints(null)); }
+    try { stream = await navigator.mediaDevices.getUserMedia(camConstraints(null)); }
     catch (e2) { return { ok: false, detector: null }; }
   }
+  if (!camChoice) stream = await preferFocusing(stream);
+  /* The scanner may have been closed while the cameras were being tried. */
+  if (epoch !== camEpoch) {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    return { ok: false, detector: null, cancelled: true };
+  }
+  if (!stream) return { ok: false, detector: null };
+  scanStream = stream;
   videoEl.srcObject = scanStream;
   await videoEl.play().catch(() => {});
   keepFocusing(scanStream, videoEl);
@@ -1732,13 +1785,14 @@ async function openScanner(step, hint, handler) {
 
   const started = await startCamera(ui.cam);
   if (!started.ok) {
-    toast('Camera blocked — paste the code instead', 5000);
+    if (!started.cancelled) toast('Camera blocked — paste the code instead', 5000);
     return;
   }
   runScanLoop(ui.cam, started.detector, handler);
 }
 
 function stopScanner() {
+  camEpoch++;
   scanning = false;
   clearTimeout(rafId);
   if (scanStream) {
