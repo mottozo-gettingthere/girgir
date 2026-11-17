@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 47;
+const APP_VERSION = 48;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -269,7 +269,9 @@ function audio() {
     if (!C) return null;
     actx = new C();
   }
-  if (actx.state === 'suspended') actx.resume().catch(() => {});
+  /* iOS also has an "interrupted" state (a call, Siri, the microphone
+     starting), and a context left in it sends silence. */
+  if (actx.state !== 'running' && actx.state !== 'closed') actx.resume().catch(() => {});
   return actx;
 }
 
@@ -765,12 +767,56 @@ function setLive(on) {
   const wasLive = live;
   live = on;
   if (micTrack) micTrack.enabled = on;
+  if (on) { audio(); watchMic(); } else clearInterval(micWatch);
   syncDuck();
   sendCtl({ t: 'mic', live: on });
   if (on) buzz(12);
   setSessionState(on || mode === 'open');
   updateTalk();
   updateStatus();
+}
+
+/* What you say reaches the call through Web Audio (for the mic level and the
+   voices). An iPhone can stop that graph - Safari suspends or interrupts the
+   context, and some versions feed silence into a context made before the
+   microphone opened - and then the other phone hears nothing while this one
+   shows LIVE. So while live, check the graph is running and producing sound.
+   If it stays dead for a few seconds while the microphone itself is fine,
+   send the microphone straight to the call instead, for the rest of this
+   page's life. Mic level and voices stop applying, and a toast says so. */
+let micDirect = false, micWatch = 0, micDeadSince = 0;
+
+function watchMic() {
+  clearInterval(micWatch);
+  micDeadSince = 0;
+  if (micDirect || !micDest || !micRawTrack) return;
+  const buf = micAnalyser ? new Float32Array(micAnalyser.fftSize) : null;
+  micWatch = setInterval(() => {
+    if (!live || micDirect) { clearInterval(micWatch); return; }
+    let dead = !actx || actx.state !== 'running';
+    if (dead && actx) actx.resume().catch(() => {});
+    /* A real microphone never gives exact zeros, even in a silent room;
+       a stalled graph gives nothing else. A level of 0 is a deliberate
+       silence, so it is left alone. */
+    if (!dead && buf && micGain > 0) {
+      micAnalyser.getFloatTimeDomainData(buf);
+      dead = buf.every(v => v === 0);
+    }
+    if (!dead || micRawTrack.readyState !== 'live' || micRawTrack.muted) { micDeadSince = 0; return; }
+    if (!micDeadSince) micDeadSince = Date.now();
+    else if (Date.now() - micDeadSince > 2500) micGoDirect();
+  }, 500);
+}
+
+function micGoDirect() {
+  clearInterval(micWatch);
+  micDirect = true;
+  micStream = micRaw;
+  micTrack = micRawTrack;
+  micTrack.enabled = live;
+  const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+  if (sender) sender.replaceTrack(micRawTrack).catch(() => {});
+  toast('Your voice is now sent straight from the microphone. Mic level and voices are off for this call.', 7000);
 }
 
 function releaseHold() {
@@ -2734,6 +2780,8 @@ ui.talk.addEventListener('contextmenu', e => e.preventDefault());
 ui.talk.addEventListener('pointerdown', e => {
   e.preventDefault();
   try { ui.talk.setPointerCapture(e.pointerId); } catch (err) {}
+  /* A press is a user gesture, the moment iOS lets audio restart. */
+  audio();
   if (mode === 'hold') setLive(true);
 });
 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(type => {

@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Eleven things have been added since the revert:
+as usual. The code is still based on version 12. Twelve things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -172,6 +172,21 @@ as usual. The code is still based on version 12. Eleven things have been added s
 
   Tested in the browser on the Mac: `<3` keyed by simulated taps, the sets
   and All, the guide hiding with none on. Not tested on the phones.
+- **Keeping the iPhone's voice going out** (0.48). On the one link with an
+  iPhone, the Android heard nothing from it. What you say goes through Web
+  Audio (mic level, voices) before the call, and iOS can stop that graph:
+  Safari suspends or *interrupts* the context, and the app only restarted a
+  suspended one. Now any stopped context is restarted, a press on the talk
+  button restarts it too, and while live a watchdog checks the graph is
+  running and not giving exact zeros. If it stays dead for 2.5 s while the
+  microphone itself is fine, the call is switched to the raw microphone
+  (mic level and voices stop applying, and a toast says so).
+
+  Tested in two linked tabs on the Mac: with the sender's context forced to
+  stay suspended, it switched within 2.5 s and the other tab received the
+  same audio energy as before; Hold still mutes it; a healthy context did
+  not switch in 6.5 s. Not tested on an iPhone, so whether this was the
+  iPhone's fault is not confirmed.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
