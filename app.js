@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 42;
+const APP_VERSION = 43;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -67,6 +67,7 @@ const ui = {
   verNow: $('verNow'), verLatest: $('verLatest'),
   dropBar: $('dropBar'), dropText: $('dropText'), btnDropPair: $('btnDropPair'),
   watching: $('watching'), codeCam: $('codeCam'),
+  btnCamSwitch: $('btnCamSwitch'), btnCamSwitch2: $('btnCamSwitch2'),
   resumeBar: $('resumeBar'), resumeText: $('resumeText'),
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
@@ -1563,6 +1564,78 @@ function keepFocusing(stream, videoEl) {
   };
 }
 
+/* Asking for the back camera gets whichever one the browser lists first, and
+   on the Galaxy S25 Chrome hands over the wide-angle lens, which cannot focus
+   on a screen held close. So the scanner offers a switch through the back
+   cameras, and keeps the one picked for the rest of this session - in memory
+   only, so the next launch starts from the browser's choice again. */
+let camChoice = null;
+
+function camConstraints(deviceId) {
+  const video = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  if (deviceId) video.deviceId = { exact: deviceId };
+  else video.facingMode = { ideal: 'environment' };
+  return { video };
+}
+
+async function backCameras() {
+  let devs = [];
+  try {
+    devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  } catch (e) { devs = []; }
+  const back = devs.filter(d => /back|rear|environment/i.test(d.label));
+  return back.length >= 2 ? back : devs;
+}
+
+function switchButtonFor(videoEl) {
+  return videoEl === ui.cam ? ui.btnCamSwitch : ui.btnCamSwitch2;
+}
+
+async function offerSwitch(videoEl) {
+  const btn = switchButtonFor(videoEl);
+  const list = await backCameras();
+  if (!scanning || !scanStream) return;
+  btn.hidden = list.length < 2;
+  btn.onclick = e => { e.stopPropagation(); switchCamera(videoEl); };
+}
+
+let switching = false;
+async function switchCamera(videoEl) {
+  if (switching || !scanning || !scanStream) return;
+  switching = true;
+  try {
+    const list = await backCameras();
+    if (list.length < 2) return;
+    const cur = scanStream.getVideoTracks()[0].getSettings().deviceId;
+    const at = list.findIndex(d => d.deviceId === cur);
+    const next = list[(at + 1) % list.length];
+    /* Phones often cannot run two cameras at once, so close this one first. */
+    scanStream.getTracks().forEach(t => t.stop());
+    let s = null, picked = null;
+    try {
+      s = await navigator.mediaDevices.getUserMedia(camConstraints(next.deviceId));
+      picked = next.deviceId;
+    } catch (e) {
+      try { s = await navigator.mediaDevices.getUserMedia(camConstraints(camChoice)); }
+      catch (e2) { s = null; }
+    }
+    if (!scanning) { if (s) s.getTracks().forEach(t => t.stop()); return; }
+    if (!s) {
+      scanStream = null;
+      toast('The camera could not be reopened - paste the code instead', 5000);
+      return;
+    }
+    scanStream = s;
+    if (picked) camChoice = picked;
+    videoEl.srcObject = s;
+    await videoEl.play().catch(() => {});
+    keepFocusing(s, videoEl);
+    if (picked) toast('Camera ' + (list.indexOf(next) + 1) + ' of ' + list.length, 1500);
+  } finally {
+    switching = false;
+  }
+}
+
 /* The camera and the decode loop are shared, because the creator watches for
    the reply from the code screen while the joiner scans from the scan screen.
    Only one of those is ever on, so a single stream is enough. */
@@ -1573,15 +1646,17 @@ async function startCamera(videoEl) {
     catch (e) { toast('QR reader unavailable - paste the code instead', 5000); }
   }
   try {
-    scanStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
-    });
+    scanStream = await navigator.mediaDevices.getUserMedia(camConstraints(camChoice));
   } catch (e) {
-    return { ok: false, detector: null };
+    if (!camChoice) return { ok: false, detector: null };
+    camChoice = null;
+    try { scanStream = await navigator.mediaDevices.getUserMedia(camConstraints(null)); }
+    catch (e2) { return { ok: false, detector: null }; }
   }
   videoEl.srcObject = scanStream;
   await videoEl.play().catch(() => {});
   keepFocusing(scanStream, videoEl);
+  offerSwitch(videoEl);
   scanning = true;
   return { ok: true, detector: detector };
 }
@@ -1673,6 +1748,7 @@ function stopScanner() {
   ui.cam.srcObject = null;
   ui.codeCam.srcObject = null;
   ui.watching.hidden = true;
+  ui.btnCamSwitch.hidden = ui.btnCamSwitch2.hidden = true;
 }
 
 async function consume(code, handler) {
@@ -2632,7 +2708,7 @@ ui.togHalf.onclick = () => {
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
   'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair',
-  'watching', 'codeCam', 'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms',
+  'watching', 'codeCam', 'btnCamSwitch', 'btnCamSwitch2', 'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms',
   'drillCands', 'drillChoices', 'drillKey', 'drillFeedback', 'drillScore', 'btnDrillSend',
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
   'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose',

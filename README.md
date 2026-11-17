@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**42 (version 12 code, Wi-Fi routes only)**: 42 is what the updater compares,
-12 is what the code is based on. Six things have been added since the revert:
+**43 (version 12 code, Wi-Fi routes only)**: 43 is what the updater compares,
+12 is what the code is based on. Seven things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -105,6 +105,21 @@ shipped as 12 would have reached nobody. Settings therefore reads
 
   Tested: syntax, and the test in the browser on the Mac. Not tested on the
   primary, so whether its browser offers focus control at all is unknown.
+- **Switch camera** (43). *Test camera focus* on the primary settled the
+  blur: asked for the back camera, Chrome there opens the wide-angle lens,
+  which cannot focus on a screen held close; *Next camera* to the main lens
+  gave a sharp picture and a read. Both camera views now offer a switch
+  (*Switch camera* on the scanner, *Blurry? Switch camera* under the small
+  picture on the code screen), stepping through the back cameras. The one
+  picked is used for every scan until the app is closed, held in memory
+  only. Updates now also fetch every file straight from the network, so a
+  stale copy in the browser cache cannot mix two versions.
+
+  Tested on the Mac with two fake back cameras, one blank and one showing a
+  code: the switch appears on both views, moves to the other camera, reads
+  the code, and the next scan opens the picked camera directly. Not tested
+  on the primary. Picking the main lens without a tap waits on the camera
+  names the primary's Chrome reports.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

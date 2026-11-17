@@ -2,7 +2,7 @@
    network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
    decodes QR codes natively never download it, and those that need it fetch it on
    first run and get it cached by the runtime handler below. */
-const CACHE = 'girgir-v42';
+const CACHE = 'girgir-v43';
 const ASSETS = [
   './',
   'index.html',
@@ -20,7 +20,9 @@ const ASSETS = [
 self.addEventListener('install', ev => {
   ev.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(ASSETS))
+      /* Straight from the network: a copy in the browser's own cache could be
+         a file from the previous version, and mixing versions breaks the page. */
+      .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
       .then(() => self.skipWaiting())
   );
 });
