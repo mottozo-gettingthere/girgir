@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 48;
+const APP_VERSION = 49;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -457,41 +457,111 @@ function showInput() {
   ui.vInput.title = label || '';
 }
 
-async function ensureMic() {
-  if (micStream) return micStream;
-  micRaw = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
-    video: false
-  });
-  micRawTrack = micRaw.getAudioTracks()[0];
-  micRawTrack.addEventListener('ended', () => toast('Microphone disconnected', 5000));
-  showInput();
+/* The microphone is held only while it is needed. A page that keeps it open
+   keeps it from every other app on the phone - voice notes, calls, the
+   camera - even while muted, because muting only silences what is sent. So
+   the link stays up the whole time but the microphone itself is opened for
+   pairing and for talking, and let go MIC_IDLE_MS after you stop; leaving
+   the app, another app taking the microphone, or ending the call let go at
+   once. Pressing to talk takes it back, which needs no new permission.
 
-  /* What goes out is routed through a gain node so the mic level is
-     adjustable. The raw track keeps the device name for the INPUT readout,
-     and if Web Audio is unavailable it is simply sent unchanged. */
-  micStream = micRaw;
+   What goes out is the Web Audio graph's own track (for the mic level and
+   voices), which stays put; only the source feeding it comes and goes, so
+   nothing is renegotiated. When the graph is unavailable, or has been
+   bypassed, the sender's track is swapped instead. */
+const MIC_IDLE_MS = 15000;
+const MIC_CONSTRAINTS = {
+  audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+  video: false
+};
+let graphReady = false, micSource = null, micOpening = null, micReleaseTimer = 0;
+
+function audioSender() {
+  if (!pc) return null;
+  const t = pc.getTransceivers().find(tr =>
+    (tr.sender.track && tr.sender.track.kind === 'audio') ||
+    (tr.receiver && tr.receiver.track && tr.receiver.track.kind === 'audio'));
+  return t ? t.sender : null;
+}
+
+function micIsOpen() {
+  return !!(micRawTrack && micRawTrack.readyState === 'live');
+}
+
+function buildGraph() {
+  graphReady = true;
   const ctx = audio();
-  if (ctx) {
-    try {
-      micGainNode = ctx.createGain();
-      micGainNode.gain.value = micGain / 100;
-      micAnalyser = ctx.createAnalyser();
-      micAnalyser.fftSize = 512;
-      micDest = ctx.createMediaStreamDestination();
-      ctx.createMediaStreamSource(micRaw).connect(micGainNode);
-      micGainNode.connect(micAnalyser);
-      micGainNode.connect(micDest);
-      micStream = micDest.stream;
-    } catch (e) {
-      micGainNode = null;
-      micAnalyser = null;
-      micDest = null;
-      micStream = micRaw;
-    }
+  if (!ctx) return;
+  try {
+    micGainNode = ctx.createGain();
+    micGainNode.gain.value = micGain / 100;
+    micAnalyser = ctx.createAnalyser();
+    micAnalyser.fftSize = 512;
+    micDest = ctx.createMediaStreamDestination();
+    micGainNode.connect(micAnalyser);
+    micGainNode.connect(micDest);
+    micStream = micDest.stream;
+    micTrack = micStream.getAudioTracks()[0];
+    micTrack.enabled = live;
+  } catch (e) {
+    micGainNode = null;
+    micAnalyser = null;
+    micDest = null;
   }
-  micTrack = micStream.getAudioTracks()[0];
-  micTrack.enabled = false;
+}
+
+function attachCapture() {
+  if (micDest && !micDirect) {
+    micSource = actx.createMediaStreamSource(micRaw);
+    micSource.connect(micGainNode);
+    return;
+  }
+  micStream = micRaw;
+  micTrack = micRawTrack;
+  micTrack.enabled = live;
+  const sender = audioSender();
+  if (sender) sender.replaceTrack(micRawTrack).catch(() => {});
+}
+
+function acquireMic() {
+  clearTimeout(micReleaseTimer);
+  if (micIsOpen()) return Promise.resolve();
+  if (micOpening) return micOpening;
+  micOpening = (async () => {
+    const s = await navigator.mediaDevices.getUserMedia(MIC_CONSTRAINTS);
+    micRaw = s;
+    micRawTrack = s.getAudioTracks()[0];
+    micRawTrack.addEventListener('ended', () => toast('Microphone disconnected', 5000));
+    /* The phone handed the microphone to another app: let go rather than
+       hold a silent claim on it. */
+    micRawTrack.addEventListener('mute', () => { if (!live) releaseMic(); });
+    showInput();
+    if (!graphReady) buildGraph();
+    attachCapture();
+  })().finally(() => { micOpening = null; });
+  return micOpening;
+}
+
+function releaseMic() {
+  clearTimeout(micReleaseTimer);
+  if (!micIsOpen()) return;
+  if (micSource) { try { micSource.disconnect(); } catch (e) {} micSource = null; }
+  if (!micDest || micDirect) {
+    const sender = audioSender();
+    if (sender) sender.replaceTrack(null).catch(() => {});
+  }
+  micRaw.getTracks().forEach(t => t.stop());
+  ui.vInput.textContent = 'FREE';
+  ui.vInput.title = 'Microphone released - other apps can use it. Press to talk takes it back.';
+}
+
+function scheduleMicRelease(ms = MIC_IDLE_MS) {
+  clearTimeout(micReleaseTimer);
+  micReleaseTimer = setTimeout(() => { if (!live) releaseMic(); }, ms);
+}
+
+async function ensureMic() {
+  await acquireMic();
   return micStream;
 }
 
@@ -767,7 +837,16 @@ function setLive(on) {
   const wasLive = live;
   live = on;
   if (micTrack) micTrack.enabled = on;
-  if (on) { audio(); watchMic(); } else clearInterval(micWatch);
+  if (on) {
+    audio();
+    acquireMic()
+      .then(() => { if (micTrack) micTrack.enabled = live; })
+      .catch(() => toast('Microphone blocked. Allow it in site settings.', 5000));
+    watchMic();
+  } else {
+    clearInterval(micWatch);
+    if (pc && pc.connectionState === 'connected') scheduleMicRelease();
+  }
   syncDuck();
   sendCtl({ t: 'mic', live: on });
   if (on) buzz(12);
@@ -811,10 +890,11 @@ function watchMic() {
 function micGoDirect() {
   clearInterval(micWatch);
   micDirect = true;
+  if (micSource) { try { micSource.disconnect(); } catch (e) {} micSource = null; }
   micStream = micRaw;
   micTrack = micRawTrack;
   micTrack.enabled = live;
-  const sender = pc && pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+  const sender = audioSender();
   if (sender) sender.replaceTrack(micRawTrack).catch(() => {});
   toast('Your voice is now sent straight from the microphone. Mic level and voices are off for this call.', 7000);
 }
@@ -1233,6 +1313,9 @@ async function attemptRecovery(force) {
   recovering = true;
   setPill('pairing', 'RELINKING');
   try {
+    /* Safari reveals this phone's address only while it is capturing. */
+    await acquireMic().catch(() => {});
+    if (!live) scheduleMicRelease();
     await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
     await gatheringDone();
     sendCtl({ t: 'reoffer', sdp: localOnly(pc.localDescription.sdp) });
@@ -1252,6 +1335,8 @@ async function takeReoffer(sdp) {
   recovering = true;
   setPill('pairing', 'RELINKING');
   try {
+    await acquireMic().catch(() => {});
+    if (!live) scheduleMicRelease();
     await pc.setRemoteDescription({ type: 'offer', sdp: localOnly(sdp) });
     await pc.setLocalDescription(await pc.createAnswer());
     await gatheringDone();
@@ -1459,6 +1544,10 @@ async function host(step, hint) {
   showCode(standbyCode, step, hint, 'Scan full screen instead',
     () => openScanner(step, 'Scan the code the other phone shows.', takeStandby),
     takeStandby, standbyFilter);
+  /* The code already carries this phone's address, so a long wait - standby
+     can last until the other person comes back - need not hold the
+     microphone. A quick pairing finishes well before this. */
+  scheduleMicRelease();
 }
 
 function createChannel() {
@@ -1518,6 +1607,7 @@ async function takeOffer(code) {
   const answer = await packDesc('A', pc.localDescription.sdp);
   showCode(answer, 'STEP 2 OF 2', 'Let their phone scan this. You will connect automatically.',
     'Waiting for them…', () => { if (pc.connectionState !== 'connected') toast('Still waiting for them to scan'); });
+  scheduleMicRelease();
 }
 
 async function takeAnswer(code) {
@@ -1908,6 +1998,8 @@ function goLive() {
   rememberChannel();
   channelUp = true;
   armGuard();
+  /* Linked: from here the microphone is only held while talking. */
+  if (!live) scheduleMicRelease();
   if (!ui.views.live.hidden) return;
   stopScanner();
   show('live');
@@ -1964,6 +2056,7 @@ async function requestWakeLock() {
 
 function hangUp() {
   setLive(false);
+  releaseMic();
   stopHeartbeat();
   stopScanner();
   clearTimeout(standbyTimer);
@@ -3000,13 +3093,18 @@ ui.togRoger.onclick = () => {
 /* Safety releases. */
 window.addEventListener('blur', releaseHold);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) releaseHold();
-  else requestWakeLock();
+  if (document.hidden) {
+    releaseHold();
+    /* Switching to another app frees the microphone for it straight away -
+       unless this phone is live in Open mode, which is meant to carry on
+       from a pocket. */
+    if (!live && channelUp) releaseMic();
+  } else requestWakeLock();
 });
 
 if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
   navigator.mediaDevices.addEventListener('devicechange', () => {
-    if (micRawTrack) showInput();
+    if (micIsOpen()) showInput();
     if (!ui.views.live.hidden) refreshOutputs();
   });
 }

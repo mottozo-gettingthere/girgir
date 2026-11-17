@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Twelve things have been added since the revert:
+as usual. The code is still based on version 12. Thirteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -187,6 +187,27 @@ as usual. The code is still based on version 12. Twelve things have been added s
   same audio energy as before; Hold still mutes it; a healthy context did
   not switch in 6.5 s. Not tested on an iPhone, so whether this was the
   iPhone's fault is not confirmed.
+- **Letting go of the microphone** (0.49). The app opened the microphone at
+  pairing and held it until the page closed, even after End, so other apps
+  (voice notes, calls) could not use it. Muting only silenced what was sent.
+  Now the link stays up but the microphone is held only while needed:
+  - opened for pairing and whenever you go live (a press, Latch, Open);
+  - let go 15 s after you stop talking, and 15 s after a pairing code goes
+    up (the code already carries the address, so standby can wait without
+    it);
+  - let go at once when you switch to another app (unless live in Open
+    mode), when the phone gives the microphone to another app, and on End.
+  The outgoing Web Audio track stays in place and only its source comes and
+  goes, so nothing is renegotiated. INPUT reads FREE while it is released.
+
+  Tested in two linked tabs on the Mac with a fake microphone that counts
+  opens: released 15 s after linking with the link still up; a press reopens
+  it and the other tab hears it; switching away frees it at once; Open mode
+  holds it; End frees it; pairing still links when the creator's microphone
+  was freed before the other side joined. Not tested on phones. Risk to
+  watch: Safari may need the microphone open to relink, so it is reopened
+  for every relink, and an iPhone may move call audio from earpiece to
+  speaker while the microphone is released.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
