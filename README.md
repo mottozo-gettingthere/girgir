@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Ten things have been added since the revert:
+as usual. The code is still based on version 12. Eleven things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -161,6 +161,17 @@ as usual. The code is still based on version 12. Ten things have been added sinc
   Tested at phone and desktop widths in the browser on the Mac: the buttons
   open their pages, the drop-downs open, the drawings animate, and the
   version reads 0.46. Not tested on the phones.
+- **Keyer character sets, and < >** (0.47). The keyer's *Guide*, *+ numbers*
+  and *+ punctuation* only changed the hints, so with Guide off the other two
+  seemed to do nothing. The row is now **abc · 123 · .,? · All**: each set
+  adds its characters to the guide, none on hides it, *All* turns all three
+  on or back to letters. Keying still decodes every character whatever is
+  selected. Practice *Live* uses the same row. `<` (`– · – · ·`) and `>`
+  (`· · – · –`) are added so `<3` can be sent; they are not standard Morse,
+  just a mirrored pair on patterns nothing else uses.
+
+  Tested in the browser on the Mac: `<3` keyed by simulated taps, the sets
+  and All, the guide hiding with none on. Not tested on the phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

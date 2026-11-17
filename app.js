@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 46;
+const APP_VERSION = 47;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -2088,7 +2088,10 @@ const MORSE_GROUPS = [
     '.': '.-.-.-', ',': '--..--', '?': '..--..', "'": '.----.', '!': '-.-.--',
     '/': '-..-.',  '(': '-.--.',  ')': '-.--.-', '&': '.-...',  ':': '---...',
     ';': '-.-.-.', '=': '-...-',  '+': '.-.-.',  '-': '-....-', '_': '..--.-',
-    '"': '.-..-.', '$': '...-..-', '@': '.--.-.'
+    '"': '.-..-.', '$': '...-..-', '@': '.--.-.',
+    /* Not in standard Morse: added here so <3 can be sent. A mirrored pair,
+       on patterns nothing else uses. */
+    '<': '-.-..', '>': '..-.-'
   }]
 ];
 const MORSE = Object.assign({}, ...MORSE_GROUPS.map(g => g[1]));
@@ -2361,6 +2364,8 @@ function setDrillMode(m) {
   document.querySelectorAll('#viewDrill .drill-only').forEach(el => { el.hidden = liveKey; });
   ui.freeKeyer.hidden = !liveKey;
   ui.freePhrase.hidden = !liveKey;
+  /* Live has its own abc / 123 / .,? row. */
+  ui.drillTogs.hidden = liveKey;
   if (!liveKey && freeKeyer) freeKeyer.stop();
   if (liveKey) {
     ui.drillPanel.hidden = ui.drillKey.hidden = ui.drillChoices.hidden = true;
@@ -2425,15 +2430,26 @@ function makeKeyer(root, opts) {
   const guideEl = el('div', 'kx-guide');
   panel.append(line, nextEl, guideEl);
 
+  /* Which characters the guide offers. Keying always decodes everything;
+     these only choose what the hints show, and with none on the guide is
+     out of the way. All turns the three on, or back to letters only. */
   const row = el('div', 'kx-row');
-  const togGuide = el('button', 'tog tiny', 'Guide');
-  row.append(togGuide);
-  let togNum = null, togPunct = null;
-  if (opts.toggles) {
-    togNum = el('button', 'tog tiny', '+ numbers');
-    togPunct = el('button', 'tog tiny', '+ punctuation');
-    row.append(togNum, togPunct);
-  }
+  const sets = { Letters: true, Numbers: false, Punctuation: false };
+  const setBtns = [['Letters', 'abc'], ['Numbers', '123'], ['Punctuation', '.,?']].map(([k, label]) => {
+    const b = el('button', 'tog tiny', label);
+    b.setAttribute('aria-label', 'Show ' + k.toLowerCase() + ' in the guide');
+    b.onclick = () => { sets[k] = !sets[k]; render(); };
+    row.append(b);
+    return [k, b];
+  });
+  const togAll = el('button', 'tog tiny', 'All');
+  togAll.setAttribute('aria-label', 'Show every character in the guide');
+  togAll.onclick = () => {
+    const all = Object.values(sets).every(Boolean);
+    Object.keys(sets).forEach(k => { sets[k] = !all || k === 'Letters'; });
+    render();
+  };
+  row.append(togAll);
 
   const key = el('button', 'talk kx-key');
   key.append(el('span', 'talk-label', 'KEY · TAP = DOT · HOLD = DASH'));
@@ -2449,13 +2465,9 @@ function makeKeyer(root, opts) {
 
   let syms = '', word = '', phrase = [], note = '';
   let downAt = 0, gapTimer = 0, clearArmed = 0;
-  let guideOn = true, withNum = false, withPunct = false;
 
   function pool() {
-    if (opts.pool) return opts.pool();
-    return MORSE_GROUPS
-      .filter(([t]) => t === 'Letters' || (t === 'Numbers' && withNum) || (t === 'Punctuation' && withPunct))
-      .flatMap(([, table]) => Object.keys(table));
+    return MORSE_GROUPS.filter(([t]) => sets[t]).flatMap(([, table]) => Object.keys(table));
   }
 
   function chip(ch) {
@@ -2476,10 +2488,10 @@ function makeKeyer(root, opts) {
     symsEl.textContent = syms ? morsePretty(syms) : '';
     line.classList.toggle('empty', !word && !syms);
 
+    const guideOn = Object.values(sets).some(Boolean);
     panel.classList.toggle('no-guide', !guideOn);
-    togGuide.setAttribute('aria-pressed', String(guideOn));
-    if (togNum) togNum.setAttribute('aria-pressed', String(withNum));
-    if (togPunct) togPunct.setAttribute('aria-pressed', String(withPunct));
+    setBtns.forEach(([k, b]) => b.setAttribute('aria-pressed', String(sets[k])));
+    togAll.setAttribute('aria-pressed', String(Object.values(sets).every(Boolean)));
 
     const order = pool();
     let cands = order.filter(k => MORSE[k].indexOf(syms) === 0);
@@ -2595,9 +2607,6 @@ function makeKeyer(root, opts) {
   });
   ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => key.addEventListener(t, up));
 
-  togGuide.onclick = () => { guideOn = !guideOn; render(); };
-  if (togNum) togNum.onclick = () => { withNum = !withNum; render(); };
-  if (togPunct) togPunct.onclick = () => { withPunct = !withPunct; render(); };
   btnBack.onclick = () => {
     clearTimeout(gapTimer);
     note = '';
@@ -2837,14 +2846,12 @@ document.addEventListener('keydown', e => {
 freeKeyer = makeKeyer(ui.freeKeyer, {
   doneLabel: 'Word done',
   emptyText: 'Finished words build up here. Tap one to hear it.',
-  phraseEl: ui.freePhrase,
-  pool: drillPool
+  phraseEl: ui.freePhrase
 });
 callKeyer = makeKeyer(ui.callKeyer, {
   doneLabel: 'Send word',
   emptyText: 'Finished words show here on both phones: yours amber, theirs teal.',
   phraseEl: ui.callPhrase,
-  toggles: true,
   onWord: w => sendCtl({ t: 'mword', w }),
   onClear: () => sendCtl({ t: 'mclear' }),
   onPhrase: updateCallPhrase

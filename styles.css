@@ -864,6 +864,7 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
   margin-left: 0; color: var(--rx); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
 }
 .kx-row { display: flex; gap: 6px; }
+.kx-row .tog { flex: 1 1 0; min-width: 0; }
 .kx-key { align-self: center; }
 .kx-actions { display: grid; grid-template-columns: 64px 1fr 76px; gap: 8px; }
 .kx-actions .btn { width: 100%; }
