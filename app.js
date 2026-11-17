@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 43;
+const APP_VERSION = 44;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -1802,6 +1802,8 @@ function initResume() {
 
 function goLive() {
   rememberChannel();
+  channelUp = true;
+  armGuard();
   if (!ui.views.live.hidden) return;
   stopScanner();
   show('live');
@@ -1884,7 +1886,53 @@ function hangUp() {
   ui.dropBar.hidden = true;
   setPill('idle', 'IDLE');
   show('setup');
+  disarmGuard();
 }
+
+/* ---------------- leaving guard ---------------- */
+
+/* A closed page cannot get its link back without a fresh code swap, so while
+   a channel is up - linked, or on standby after a drop - leaving has to be a
+   choice. The back gesture pops a placeholder history entry instead of
+   leaving, and asks; closing or reloading gets the browser's own "Leave
+   site?" check. iOS ignores the latter, so there only the back swipe is
+   caught. Nothing is stored: the placeholder lives in this page's history. */
+let channelUp = false, guardArmed = false;
+
+function armGuard() {
+  if (guardArmed) return;
+  try { history.pushState({ girgir: 'channel' }, ''); guardArmed = true; }
+  catch (e) { guardArmed = false; }
+}
+
+function disarmGuard() {
+  channelUp = false;
+  if (guardArmed) {
+    guardArmed = false;
+    /* Take the placeholder back off, so the next back press leaves as usual.
+       The popstate this causes finds the guard disarmed and does nothing. */
+    try { if (history.state && history.state.girgir === 'channel') history.back(); }
+    catch (e) { /* ignore */ }
+  }
+}
+
+window.addEventListener('popstate', () => {
+  if (!guardArmed) return;
+  guardArmed = false;
+  if (!channelUp) return;
+  if (!ui.views.help.hidden) { show(helpReturn); armGuard(); return; }
+  if (window.confirm('Leave the channel? The link ends, and getting back means pairing again.')) {
+    hangUp();
+  } else {
+    armGuard();
+  }
+});
+
+window.addEventListener('beforeunload', ev => {
+  if (!channelUp) return;
+  ev.preventDefault();
+  ev.returnValue = '';
+});
 
 /* ---------------- local network permission ---------------- */
 

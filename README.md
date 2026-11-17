@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**43 (version 12 code, Wi-Fi routes only)**: 43 is what the updater compares,
-12 is what the code is based on. Seven things have been added since the revert:
+**44 (version 12 code, Wi-Fi routes only)**: 44 is what the updater compares,
+12 is what the code is based on. Eight things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -120,6 +120,19 @@ shipped as 12 would have reached nobody. Settings therefore reads
   the code, and the next scan opens the picked camera directly. Not tested
   on the primary. Picking the main lens without a tap waits on the camera
   names the primary's Chrome reports.
+- **Asking before leaving a channel** (44). A closed page cannot get its link
+  back without a fresh code swap: the one-time keys die with it, and keeping
+  them would mean storing them, which this app does not do. So leaving is
+  made a choice instead. While a channel is up (linked, or on standby after a
+  drop), the back gesture asks "Leave the channel?" instead of leaving, and
+  closing or reloading gets the browser's own "Leave site?" check. End
+  still ends at once. iOS ignores the close check, so there only the back
+  swipe is caught.
+
+  Tested in two tabs on the Mac: back with "stay" keeps the link, back with
+  "leave" ends it, the other tab drops and stays guarded, and End leaves no
+  question behind. The close check could not be tried there. Not tested on
+  the phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
