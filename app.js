@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 41;
+const APP_VERSION = 42;
 const CODE_OF = 12;
 
 const REMEMBER_SETTINGS = false;
@@ -1545,6 +1545,24 @@ function loadJsQR() {
   return jsqrLoad;
 }
 
+/* Some phones open the camera for a web page with focus fixed wherever it
+   started, so a screen held close stays blurred. Where the browser exposes
+   focus control, ask for continuous autofocus, and let a tap on the picture
+   force a fresh focus. Where it does not, nothing changes. */
+function keepFocusing(stream, videoEl) {
+  const track = stream.getVideoTracks()[0];
+  let modes = [];
+  try { modes = (track.getCapabilities && track.getCapabilities().focusMode) || []; }
+  catch (e) { modes = []; }
+  const set = mode => track.applyConstraints({ advanced: [{ focusMode: mode }] }).catch(() => {});
+  if (modes.includes('continuous')) set('continuous');
+  videoEl.onclick = !modes.includes('single-shot') ? null : () => {
+    set('single-shot').then(() => setTimeout(() => {
+      if (modes.includes('continuous') && track.readyState === 'live') set('continuous');
+    }, 1500));
+  };
+}
+
 /* The camera and the decode loop are shared, because the creator watches for
    the reply from the code screen while the joiner scans from the scan screen.
    Only one of those is ever on, so a single stream is enough. */
@@ -1563,6 +1581,7 @@ async function startCamera(videoEl) {
   }
   videoEl.srcObject = scanStream;
   await videoEl.play().catch(() => {});
+  keepFocusing(scanStream, videoEl);
   scanning = true;
   return { ok: true, detector: detector };
 }

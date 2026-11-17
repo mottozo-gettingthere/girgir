@@ -18,8 +18,8 @@ time, each one tested on the real phones before the next.
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. Settings therefore reads
-**41 (version 12 code, Wi-Fi routes only)**: 41 is what the updater compares,
-12 is what the code is based on. Five things have been added since the revert:
+**42 (version 12 code, Wi-Fi routes only)**: 42 is what the updater compares,
+12 is what the code is based on. Six things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -86,6 +86,25 @@ shipped as 12 would have reached nobody. Settings therefore reads
   Tested: pairing still links in two tabs with the request in place, and the
   new test runs. Not tested: whether Android Chrome or Samsung Internet show
   the question at all, and whether allowing it lets the primary pair.
+
+  Settled on 16 November, on the phones: the primary's Chrome could not reach
+  a page served from the Mac on the same Wi-Fi (ERR_TOO_MANY_RETRIES, nothing
+  arrived), while Samsung Internet on the same phone could. Allowing Chrome's
+  Android *Nearby devices* permission and restarting Chrome fixed it, and the
+  primary then paired. Chrome's own site permission read "granted" throughout,
+  so it says nothing about this block.
+- **Camera focus** (42). The primary links now, but reads codes badly, and
+  the picture looks unfocused. The scanner now asks for continuous autofocus
+  where the browser offers focus control, and a tap on the picture refocuses.
+  Where the browser offers no control, nothing changes.
+
+  `diag.html` gains *Test camera focus*: which camera the browser opened, the
+  cameras it lists, the picture size, the focus modes on offer, and a live
+  picture that says when it reads a code. *Next camera* steps through the
+  others, to find a lens that focuses close.
+
+  Tested: syntax, and the test in the browser on the Mac. Not tested on the
+  primary, so whether its browser offers focus control at all is unknown.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

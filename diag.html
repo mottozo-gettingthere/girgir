@@ -24,6 +24,10 @@
   .mid { color:var(--maybe); border-color:var(--maybe); }
   button { font:inherit; background:var(--panel); color:var(--fg); border:1px solid var(--line);
            border-radius:8px; padding:12px 16px; margin:6px 6px 0 0; cursor:pointer; }
+  .cam-box { position:relative; margin:10px 0 4px; border:1px solid var(--line); border-radius:8px; overflow:hidden;
+             aspect-ratio:1; max-width:420px; background:#000; }
+  .cam-box video { width:100%; height:100%; object-fit:cover; display:block; }
+  .cam-read { margin:6px 0; font-size:13px; }
   #ua { color:var(--muted); font-size:11px; word-break:break-all; margin-top:14px; line-height:1.5; }
 </style>
 </head>
@@ -41,6 +45,7 @@
 <button id="bNet">Test local address</button>
 <button id="bLan">Test local network access</button>
 <button id="bScan">Test QR scanner</button>
+<button id="bCam">Test camera focus</button>
 <button id="bPair">Test pairing on this phone</button>
 <div id="live"></div>
 
@@ -324,6 +329,147 @@ document.getElementById('bScan').onclick = async () => {
           : 'it could not read a perfect code, so the camera is not the problem', live);
   }
 };
+
+/* Opens the camera the way the app does, says which lens that turned out to be
+   and what focus control the browser gives over it, then shows the picture and
+   reports the moment it reads a code. "Next camera" steps through every camera
+   the browser lists, so a lens that focuses close can be told from one that
+   cannot. Nothing is kept: the camera closes when another test starts. */
+let camStream = null, camTimer = 0, camList = [], camAt = -1;
+
+function camStop() {
+  clearTimeout(camTimer);
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+}
+
+async function camOpen(deviceId) {
+  camStop();
+  live.innerHTML = '';
+  const video = { width: { ideal: 1280 }, height: { ideal: 720 } };
+  if (deviceId) video.deviceId = { exact: deviceId };
+  else video.facingMode = { ideal: 'environment' };
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video });
+  } catch (e) {
+    row('Camera opened', false, (e && e.name || 'Error') + ': ' + (e && e.message || ''), live);
+    return;
+  }
+  const track = camStream.getVideoTracks()[0];
+  const set = track.getSettings ? track.getSettings() : {};
+  const cap = track.getCapabilities ? track.getCapabilities() : {};
+  try {
+    camList = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  } catch (e) { camList = []; }
+  camAt = camList.findIndex(d => d.deviceId === set.deviceId);
+
+  row('Camera opened', true, (track.label || 'no name given') +
+      (deviceId ? '' : ' — the one the app opens for scanning'), live);
+  row('Cameras listed', String(camList.length || '?'),
+      camList.map((d, i) => (i === camAt ? '▸ ' : '  ') + (i + 1) + '. ' + (d.label || 'no name'))
+             .join('  ·  '), live);
+  row('Picture size', set.width && set.height ? set.width + '×' + set.height : '?', 'asked for 1280×720', live);
+
+  const modes = Array.isArray(cap.focusMode) ? cap.focusMode : [];
+  let now = set.focusMode || 'not reported';
+  if (modes.includes('continuous')) {
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+      now = (track.getSettings().focusMode || now);
+    } catch (e) { /* reported as unchanged */ }
+  }
+  row('Autofocus', modes.includes('continuous') ? true : modes.length ? modes.join(' / ') : 'NOT REPORTED',
+      modes.length ? 'modes offered: ' + modes.join(', ') + '. In use: ' + now
+                   : 'the browser gives no focus control for this camera, so it focuses only as the phone decides', live);
+  if (cap.focusDistance && cap.focusDistance.max) {
+    row('Focus distance', cap.focusDistance.min + '–' + cap.focusDistance.max,
+        'as the browser reports it', live);
+  }
+  if (cap.zoom && cap.zoom.max > cap.zoom.min) {
+    row('Zoom', cap.zoom.min + '–' + cap.zoom.max + '×', 'now ' + (set.zoom || cap.zoom.min) + '×', live);
+  }
+
+  const box = document.createElement('div');
+  box.className = 'cam-box';
+  const v = document.createElement('video');
+  v.playsInline = true; v.muted = true; v.srcObject = camStream;
+  box.appendChild(v);
+  const status = document.createElement('div');
+  status.className = 'cam-read mid';
+  status.textContent = 'Point it at a QR code on another screen, 15–30 cm away.';
+  const next = document.createElement('button');
+  next.textContent = 'Next camera';
+  next.disabled = camList.length < 2;
+  next.onclick = () => {
+    const i = (camAt + 1) % camList.length;
+    camOpen(camList[i].deviceId);
+  };
+  const stop = document.createElement('button');
+  stop.textContent = 'Stop camera';
+  stop.onclick = () => { camStop(); live.innerHTML = ''; };
+  live.append(box, status, next, stop);
+  await v.play().catch(() => {});
+
+  if (modes.includes('single-shot')) {
+    v.onclick = () => {
+      track.applyConstraints({ advanced: [{ focusMode: 'single-shot' }] })
+        .then(() => setTimeout(() => {
+          if (modes.includes('continuous'))
+            track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {});
+        }, 1500))
+        .catch(() => {});
+      status.textContent = 'Refocusing…';
+    };
+  }
+
+  let det = null;
+  try {
+    if ('BarcodeDetector' in window &&
+        (await window.BarcodeDetector.getSupportedFormats()).includes('qr_code'))
+      det = new window.BarcodeDetector({ formats: ['qr_code'] });
+  } catch (e) { det = null; }
+  if (!det && !window.jsQR) {
+    await new Promise(done => {
+      const s = document.createElement('script');
+      s.src = 'vendor/jsQR.min.js';
+      s.onload = s.onerror = done;
+      document.head.appendChild(s);
+    });
+  }
+  const canvas = document.createElement('canvas');
+  const g = canvas.getContext('2d', { willReadFrequently: true });
+  const started = Date.now();
+  const mine = camStream;
+  const tick = async () => {
+    if (camStream !== mine) return;
+    if (v.readyState >= 2 && v.videoWidth) {
+      const side = Math.min(v.videoWidth, v.videoHeight), sz = Math.min(side, 760);
+      canvas.width = canvas.height = sz;
+      g.drawImage(v, (v.videoWidth - side) / 2, (v.videoHeight - side) / 2, side, side, 0, 0, sz, sz);
+      let text = null;
+      try {
+        if (det) { const c = await det.detect(canvas); if (c && c.length) text = c[0].rawValue; }
+        else if (window.jsQR) {
+          const f = jsQR(g.getImageData(0, 0, sz, sz).data, sz, sz, { inversionAttempts: 'dontInvert' });
+          if (f) text = f.data;
+        }
+      } catch (e) { /* next frame */ }
+      if (text) {
+        status.className = 'cam-read yes';
+        status.textContent = 'READ a code (' + text.length + ' characters) after ' +
+          ((Date.now() - started) / 1000).toFixed(1) + ' s — this camera can scan.';
+        return;
+      }
+    }
+    camTimer = setTimeout(tick, 150);
+  };
+  camTimer = setTimeout(tick, 300);
+}
+
+document.getElementById('bCam').onclick = () => camOpen(null);
+document.querySelectorAll('button[id^="b"]').forEach(b => {
+  if (b.id !== 'bCam') b.addEventListener('click', camStop);
+});
 
 document.getElementById('bNet').onclick = async () => {
   live.innerHTML = '';
