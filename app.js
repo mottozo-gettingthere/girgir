@@ -15,8 +15,12 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 45;
+const APP_VERSION = 46;
 const CODE_OF = 12;
+
+/* Shown as 0.NN. The updater still compares the whole number, so a phone on
+   45 is offered 46 exactly as before. */
+function verText(n) { return '0.' + String(n).padStart(2, '0'); }
 
 const REMEMBER_SETTINGS = false;
 const INSTALLED_KEY = 'girgir-installed';
@@ -64,7 +68,7 @@ const ui = {
   routeRow: $('routeRow'), btnEarpiece: $('btnEarpiece'), btnSpeaker: $('btnSpeaker'),
   voice: $('voiceBtn'), voiceFace: $('voiceFace'), voiceName: $('voiceName'),
   updateBar: $('updateBar'), updateText: $('updateText'), btnUpdate: $('btnUpdate'),
-  verNow: $('verNow'), verLatest: $('verLatest'),
+  verNow: $('verNow'), verLatest: $('verLatest'), verFoot: $('verFoot'),
   dropBar: $('dropBar'), dropText: $('dropText'), btnDropPair: $('btnDropPair'),
   watching: $('watching'), codeCam: $('codeCam'),
   btnCamSwitch: $('btnCamSwitch'), btnCamSwitch2: $('btnCamSwitch2'),
@@ -1226,13 +1230,13 @@ async function takeReanswer(sdp) {
    rather than what was cached - otherwise the app could only ever confirm its
    own version to itself. */
 function showUpdate(latest) {
-  ui.updateText.textContent = 'Version ' + latest + ' is out. You have ' +
-    APP_VERSION + '. Update while you have internet.';
+  ui.updateText.textContent = 'Version ' + verText(latest) + ' is out. You have ' +
+    verText(APP_VERSION) + '. Update while you have internet.';
   ui.updateBar.hidden = false;
 }
 
 async function checkVersion() {
-  ui.verNow.textContent = APP_VERSION + ' (version ' + CODE_OF + ' code, Wi-Fi routes only)';
+  ui.verNow.textContent = verText(APP_VERSION);
   if (!navigator.onLine) { ui.verLatest.textContent = ' \u00b7 offline'; return; }
   try {
     const res = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
@@ -1240,7 +1244,7 @@ async function checkVersion() {
     const latest = Number(data && data.version);
     if (!latest) return;
     if (latest > APP_VERSION) {
-      ui.verLatest.textContent = ' \u00b7 ' + latest + ' available';
+      ui.verLatest.textContent = ' \u00b7 ' + verText(latest) + ' available';
       ui.verLatest.className = 'stale';
       showUpdate(latest);
     } else {
@@ -2809,7 +2813,7 @@ ui.togHalf.onclick = () => {
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
-  'verNow', 'verLatest', 'dropBar', 'dropText', 'btnDropPair',
+  'verNow', 'verLatest', 'verFoot', 'dropBar', 'dropText', 'btnDropPair',
   'watching', 'codeCam', 'btnCamSwitch', 'btnCamSwitch2', 'btnDrill', 'drillPrompt', 'drillSub', 'drillPanel', 'drillSyms',
   'drillCands', 'drillChoices', 'drillKey', 'drillFeedback', 'drillScore', 'btnDrillSend',
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
@@ -2956,6 +2960,7 @@ if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
 
 purgeStoredData();
 load();
+ui.verFoot.textContent = 'v' + verText(APP_VERSION);
 document.querySelectorAll('.mode').forEach(b =>
   b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
 setMicGain(micGain);

@@ -360,6 +360,54 @@ body {
 }
 a.btn { display: block; box-sizing: border-box; text-align: center; text-decoration: none; }
 
+/* ---------- main page: tools, trouble, version ---------- */
+
+#viewSetup .stack { min-height: 100%; }
+
+.tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+.tool {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; min-width: 0; padding: 12px 6px 10px;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 10px;
+  font: inherit; font-size: 11px; letter-spacing: 0.06em;
+  text-decoration: none; cursor: pointer;
+}
+.tool svg {
+  width: 24px; height: 24px; fill: none; stroke: var(--fg);
+  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+.tool svg .solid { fill: var(--fg); stroke: none; }
+.tool:active { transform: translateY(1px); background: var(--panel); }
+
+.trouble { border-top: 1px solid var(--line); padding-top: 12px; }
+.trouble summary {
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.trouble summary::-webkit-details-marker { display: none; }
+.trouble summary::before {
+  content: ''; width: 7px; height: 7px; flex: none;
+  border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s ease;
+}
+.trouble[open] summary::before { transform: rotate(45deg); }
+.trouble dl { margin: 12px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.trouble dt { font-size: 12px; font-weight: 600; color: var(--fg); margin-top: 8px; }
+.trouble dd {
+  margin: 0; font-family: var(--sans); font-size: 13px;
+  line-height: 1.5; color: var(--muted);
+}
+.trouble dd b { color: var(--fg); font-weight: 600; }
+.trouble a { color: var(--rx); }
+
+.ver-foot {
+  margin: auto 0 0; padding-top: 12px; text-align: center;
+  font-size: 11px; letter-spacing: 0.08em; color: var(--dim);
+}
+@media (prefers-reduced-motion: reduce) { .trouble summary::before { transition: none; } }
+
 /* ---------- guide ---------- */
 
 .guide { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 26px; }
@@ -387,6 +435,79 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
   font-size: 13px; color: var(--dim);
   border-left: 2px solid var(--line); padding-left: 10px;
 }
+
+/* Guide drawings: plain shapes, drawn here, so they work offline and carry
+   no licence. Each loops one short motion; with reduced motion they hold
+   their finished picture. */
+.ill .ph { fill: var(--panel-2); stroke: var(--line); stroke-width: 2; }
+.ill .scr { fill: var(--bg); }
+.ill .btn-dot { fill: var(--line); }
+.ill .arc { stroke: var(--rx); }
+.ill .arc-dot { fill: var(--rx); }
+.ill .tick { fill: none; stroke: var(--rx); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.ill .cta { fill: var(--rx); }
+.ill .tap { fill: var(--fg); }
+.ill .ray { fill: none; stroke: var(--rx); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.ill .sweep { fill: var(--rx); }
+.ill .talk-you { fill: var(--tx); }
+.ill .talk-them { fill: var(--rx); }
+.ill .out { stroke: var(--tx); }
+.ill .in { stroke: var(--rx); }
+
+.anim .a1, .anim .a2, .anim .a3, .anim .w1, .anim .w2, .anim .w3 { animation: glow 1.8s ease-in-out infinite; }
+.anim .a2, .anim .w2 { animation-delay: .2s; }
+.anim .a3, .anim .w3 { animation-delay: .4s; }
+.anim .in { animation-name: glow-late; }
+@keyframes glow { 0%, 100% { opacity: .15; } 40% { opacity: 1; } }
+@keyframes glow-late { 0%, 45% { opacity: .15; } 75% { opacity: 1; } 100% { opacity: .15; } }
+
+.anim .tick { animation: tick 3.6s ease-in-out infinite; }
+.anim .t2 { animation-delay: .25s; }
+@keyframes tick { 0%, 35% { opacity: 0; } 50%, 90% { opacity: 1; } 100% { opacity: 0; } }
+
+.anim .tap { transform-box: fill-box; transform-origin: center; animation: tap 3.6s ease-out infinite; }
+@keyframes tap {
+  0% { opacity: 0; transform: scale(.4); }
+  8% { opacity: .55; transform: scale(1); }
+  24% { opacity: 0; transform: scale(1.9); }
+  100% { opacity: 0; transform: scale(1.9); }
+}
+.anim .qr-in { animation: qr-in 3.6s ease-in-out infinite; }
+@keyframes qr-in { 0%, 20% { opacity: 0; } 32%, 92% { opacity: 1; } 100% { opacity: 0; } }
+
+.anim .first { animation: first 6s steps(1, end) infinite; }
+.anim .second { animation: second 6s steps(1, end) infinite; }
+@keyframes first { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes second { 0% { opacity: 0; } 50% { opacity: 1; } }
+.anim .sweep { animation: sweep 1.5s ease-in-out infinite alternate; }
+@keyframes sweep { from { transform: translateY(0); } to { transform: translateY(58px); } }
+
+.anim .talk-you { animation: glow 1.8s ease-in-out infinite; }
+.anim .talk-them { animation: glow-late 1.8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim * { animation: none !important; }
+  .anim .second .sweep, .anim .first .sweep { display: none; }
+}
+
+.more { border-top: 1px solid var(--line); padding-top: 12px; }
+.more summary {
+  font-size: 13px; color: var(--muted); cursor: pointer;
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.more summary::-webkit-details-marker { display: none; }
+.more summary::before {
+  content: ''; width: 7px; height: 7px; flex: none;
+  border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+}
+.more[open] summary::before { transform: rotate(45deg); }
+.more p {
+  margin: 10px 0 0; font-family: var(--sans); font-size: 14px;
+  line-height: 1.5; color: var(--muted);
+}
+.more p b { color: var(--fg); font-weight: 600; }
+.more .legend { margin-top: 12px; }
 
 .sub {
   margin: 10px 0 0; font-size: 12px; font-weight: 600;

@@ -17,9 +17,10 @@ time, each one tested on the real phones before the next.
 
 The number had to go up. The updater only ever offers a build newer than the
 one installed, so a phone running 35 would never be offered a 12, and a revert
-shipped as 12 would have reached nobody. Settings therefore reads
-**45 (version 12 code, Wi-Fi routes only)**: 45 is what the updater compares,
-12 is what the code is based on. Nine things have been added since the revert:
+shipped as 12 would have reached nobody. From 46 the app shows versions as
+**0.46**, at the foot of the main page and in the guide; underneath, the
+updater still compares whole numbers (46 > 45), so older phones are offered it
+as usual. The code is still based on version 12. Ten things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -147,6 +148,19 @@ shipped as 12 would have reached nobody. Settings therefore reads
   directly; unlabelled cameras and a first pick that already autofocuses
   are left alone; cancelling mid-search leaves no camera on and no error.
   Not tested on the primary.
+- **A simpler main page and guide** (0.46). Under Create and Join, three
+  symbol buttons: *How to*, *Morse* and *Test phone*. Troubleshooting sits
+  in a *Trouble connecting?* drop-down: the Nearby devices and Local Network
+  permissions, the same network, a blurry camera, pasting the code. The
+  version shows greyed at the foot of the page. The guide is now four
+  one-line steps - same Wi-Fi, create, scan both ways, talk - each with a
+  small looping drawing made here from plain shapes (offline, no licence,
+  still under reduced motion). Installing, talk modes and the readouts moved
+  into drop-downs.
+
+  Tested at phone and desktop widths in the browser on the Mac: the buttons
+  open their pages, the drop-downs open, the drawings animate, and the
+  version reads 0.46. Not tested on the phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
