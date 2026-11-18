@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 49;
+const APP_VERSION = 50;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -60,7 +60,7 @@ const ui = {
   outRow: $('outRow'), outSel: $('outSel'), outNote: $('outNote'),
   talk: $('talkBtn'), talkLabel: $('talkLabel'),
   ping: $('pingBtn'),
-  togHalf: $('togHalf'), togRoger: $('togRoger'), hangup: $('btnHangup'),
+  togHalf: $('togHalf'), togRoger: $('togRoger'), togRange: $('togRange'), hangup: $('btnHangup'),
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
@@ -995,6 +995,13 @@ function wireChannel(channel) {
       toast((peerName || 'They') + ' are re-pairing - tap Join channel', 8000);
     }
     else if (m.t === 'ack') { toast('Ping delivered'); }
+    else if (m.t === 'range') {
+      const on = !!m.long;
+      if (on !== longRange) {
+        setLongRange(on, false);
+        toast((peerName || 'They') + (on ? ' turned on long range' : ' turned long range off'), 3000);
+      }
+    }
     else if (m.t === 'mword' && callKeyer) {
       const w = cleanWord(m.w);
       if (w) {
@@ -1002,6 +1009,12 @@ function wireChannel(channel) {
         playSent();
         buzz(30);
         if (ui.callKeyer.hidden) toast((peerName || 'They') + ' keyed: ' + w, 4000);
+      }
+    }
+    else if (m.t === 'mbreak' && callKeyer) {
+      if (callKeyer.addBreak('them')) {
+        playSent();
+        if (ui.callKeyer.hidden) toast((peerName || 'They') + ' started a new sentence (BT)', 3000);
       }
     }
     else if (m.t === 'mclear' && callKeyer) {
@@ -1496,8 +1509,28 @@ function preferOpus() {
   } catch (e) { /* not supported here */ }
 }
 
+/* Long range: a thinner voice stream for links that only carry a trickle,
+   such as Wi-Fi HaLow at the edge of its reach. Measured in Chrome, a 12 kbps
+   cap gives about 18 kbps of voice against about 32 kbps normally; packets
+   stay at 50 a second, since browsers ignore a longer packet time here. It is
+   a setting for this session only, and both phones follow whichever of them
+   turns it on or off. */
+const NORMAL_BPS = 32000;
+const LONG_BPS = 12000;
+let longRange = false;
+function rangeBps() { return longRange ? LONG_BPS : NORMAL_BPS; }
+function setLongRange(on, tell) {
+  longRange = on;
+  ui.togRange.setAttribute('aria-pressed', String(on));
+  if (pc) capBitrate(rangeBps());
+  if (tell) sendCtl({ t: 'range', long: on });
+}
+
 async function capBitrate(bps) {
-  const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+  if (!pc) return;
+  /* The transceiver's sender, found even while the microphone is released
+     and the sender has no track. */
+  const sender = audioSender();
   if (!sender || !sender.getParameters) return;
   try {
     const p = sender.getParameters();
@@ -2008,7 +2041,8 @@ function goLive() {
   updateStatus();
   initVolume();
   initOutput();
-  capBitrate(32000);
+  capBitrate(rangeBps());
+  if (longRange) sendCtl({ t: 'range', long: true });
   requestWakeLock();
   initMediaSession();
   setSessionState(true);
@@ -2063,6 +2097,7 @@ function hangUp() {
   cancelAnimationFrame(meterRaf);
   if (dc) { try { dc.close(); } catch (e) {} dc = null; }
   if (pc) { try { pc.close(); } catch (e) {} pc = null; }
+  setLongRange(false, false);
   if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
   remoteStream = null;
   remoteAnalyser = null;
@@ -2240,6 +2275,14 @@ const MORSE = Object.assign({}, ...MORSE_GROUPS.map(g => g[1]));
    a thumb can be accurate. */
 const DOT_MAX = 260;
 const LETTER_GAP = 820;
+/* After a character lands, this much more quiet finishes the word: about
+   two and a half seconds of silence in all, the long gap Morse already
+   uses between words. Off, a word only goes on Send word. */
+const WORD_GAP = 1600;
+let autoSpace = true;
+/* BT, the prosign for a break in thought. Keyed on its own it starts a new
+   sentence; inside a word it stays '='. */
+const BT = '-...-';
 
 function morseLetter(syms) {
   for (const k in MORSE) if (MORSE[k] === syms) return k;
@@ -2589,6 +2632,16 @@ function makeKeyer(root, opts) {
     render();
   };
   row.append(togAll);
+  const togAuto = el('button', 'tog tiny kx-auto-tog', 'Auto ␣');
+  togAuto.setAttribute('aria-label', 'Send the word by itself after a long pause');
+  togAuto.onclick = () => {
+    autoSpace = !autoSpace;
+    if (!autoSpace) stopWordGap();
+    else if (word && !syms) startWordGap();
+    render();
+    toast(autoSpace ? 'A long pause sends the word' : 'Words go only on ' + opts.doneLabel, 2200);
+  };
+  row.append(togAuto);
 
   const key = el('button', 'talk kx-key');
   key.append(el('span', 'talk-label', 'KEY · TAP = DOT · HOLD = DASH'));
@@ -2603,7 +2656,22 @@ function makeKeyer(root, opts) {
   root.append(panel, row, key, actions);
 
   let syms = '', word = '', phrase = [], note = '';
-  let downAt = 0, gapTimer = 0, clearArmed = 0;
+  let downAt = 0, gapTimer = 0, wordTimer = 0, clearArmed = 0;
+
+  /* The send button fills while the word gap runs, so the pause has a face. */
+  function startWordGap() {
+    stopWordGap();
+    if (!autoSpace || !word) return;
+    btnDone.style.setProperty('--gap', WORD_GAP + 'ms');
+    void btnDone.offsetWidth;
+    btnDone.classList.add('kx-filling');
+    wordTimer = setTimeout(() => { wordTimer = 0; done(); }, WORD_GAP);
+  }
+  function stopWordGap() {
+    clearTimeout(wordTimer);
+    wordTimer = 0;
+    btnDone.classList.remove('kx-filling');
+  }
 
   function pool() {
     return MORSE_GROUPS.filter(([t]) => sets[t]).flatMap(([, table]) => Object.keys(table));
@@ -2612,7 +2680,9 @@ function makeKeyer(root, opts) {
   function chip(ch) {
     const code = MORSE[ch];
     const b = el('button', 'kx-chip');
-    b.append(el('b', null, ch));
+    const isBreak = code === BT && !word;
+    b.append(el('b', null, isBreak ? '¶' : ch));
+    if (isBreak) b.title = 'On its own this is BT: a new sentence';
     if (syms) b.append(el('span', 'done', morsePretty(syms)));
     const rest = code.slice(syms.length);
     if (rest) b.append(el('span', 'left', morsePretty(rest)));
@@ -2631,6 +2701,7 @@ function makeKeyer(root, opts) {
     panel.classList.toggle('no-guide', !guideOn);
     setBtns.forEach(([k, b]) => b.setAttribute('aria-pressed', String(sets[k])));
     togAll.setAttribute('aria-pressed', String(Object.values(sets).every(Boolean)));
+    togAuto.setAttribute('aria-pressed', String(autoSpace));
 
     const order = pool();
     let cands = order.filter(k => MORSE[k].indexOf(syms) === 0);
@@ -2643,8 +2714,12 @@ function makeKeyer(root, opts) {
     if (note) {
       nextEl.textContent = note;
     } else if (!syms) {
-      nextEl.textContent = word ? 'Next character, or ' + opts.doneLabel.toLowerCase() + ' to finish the word'
-                                : 'Start with a dot or a dash';
+      nextEl.textContent = word
+        ? (autoSpace ? 'Next character, or pause to send the word'
+                     : 'Next character, or ' + opts.doneLabel.toLowerCase() + ' to finish the word')
+        : 'Start with a dot or a dash   ·   – · · · – on its own = new sentence';
+    } else if (syms === BT && !word) {
+      nextEl.append(el('b', null, 'pause'), ' → new sentence (BT)');
     } else if (!cands.length) {
       nextEl.textContent = 'No character starts ' + morseSpaced(syms) + ' — pause to drop it';
     } else {
@@ -2674,7 +2749,14 @@ function makeKeyer(root, opts) {
     const p = opts.phraseEl;
     p.innerHTML = '';
     if (!phrase.length) p.append(el('span', 'empty', opts.emptyText));
-    phrase.forEach(({ w, who }) => {
+    phrase.forEach(({ w, who, br }) => {
+      if (br) {
+        const m = el('button', 'kx-br ' + who, '¶ BT');
+        m.setAttribute('aria-label', (who === 'them' ? 'they' : 'you') + ' started a new sentence, tap to hear BT');
+        m.onclick = () => playMorseCode(BT);
+        p.append(m, el('br'));
+        return;
+      }
       const b = el('button', 'kx-w ' + who, w);
       b.setAttribute('aria-label', (who === 'them' ? 'their word ' : 'your word ') + w + ', tap to hear it');
       b.onclick = () => playMorseWord(w);
@@ -2686,15 +2768,37 @@ function makeKeyer(root, opts) {
   function commit() {
     clearTimeout(gapTimer);
     if (!syms) return;
+    if (syms === BT && !word) {
+      syms = '';
+      if (addBreak('you') && opts.onBreak) opts.onBreak();
+      render();
+      return;
+    }
     const ch = morseLetter(syms);
     if (ch && word.length < WORD_MAX) { word += ch; note = ''; }
     else if (!ch) note = morseSpaced(syms) + ' is not a character — dropped';
     syms = '';
     render();
+    startWordGap();
+  }
+
+  /* A break only means something after a word, and two in a row say no more
+     than one. */
+  function addBreak(who) {
+    const last = phrase[phrase.length - 1];
+    if (!last || last.br) {
+      if (who === 'you') note = phrase.length ? 'Already on a new sentence' : 'Key a word first, then BT';
+      return false;
+    }
+    phrase.push({ br: true, who });
+    if (phrase.length > PHRASE_MAX) phrase.splice(0, phrase.length - PHRASE_MAX);
+    renderPhrase();
+    return true;
   }
 
   function down() {
     clearTimeout(gapTimer);
+    stopWordGap();
     note = '';
     downAt = Date.now();
     keyToneOn();
@@ -2717,7 +2821,9 @@ function makeKeyer(root, opts) {
   }
 
   function done() {
+    stopWordGap();
     commit();
+    stopWordGap();
     if (!word) return;
     const w = word;
     word = '';
@@ -2734,6 +2840,7 @@ function makeKeyer(root, opts) {
 
   function stop() {
     clearTimeout(gapTimer);
+    stopWordGap();
     downAt = 0;
     keyToneOff();
   }
@@ -2752,6 +2859,7 @@ function makeKeyer(root, opts) {
     if (syms) syms = '';
     else word = word.slice(0, -1);
     render();
+    if (!syms) startWordGap();
   };
   btnDone.onclick = done;
   /* Clearing reaches the other phone too, so it takes a second tap. */
@@ -2775,6 +2883,7 @@ function makeKeyer(root, opts) {
     refresh: render,
     stop,
     addWord,
+    addBreak,
     clearPhrase,
     count: () => phrase.length,
     reset() { stop(); syms = ''; word = ''; note = ''; phrase = []; render(); renderPhrase(); }
@@ -2969,7 +3078,7 @@ ui.togHalf.onclick = () => {
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
   'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose',
   'btnDrillLive', 'drillTogs', 'freeKeyer', 'freePhrase', 'btnMorse', 'callKeyer',
-  'callPhrase'].forEach(k => {
+  'callPhrase', 'togRange'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -2995,6 +3104,7 @@ callKeyer = makeKeyer(ui.callKeyer, {
   phraseEl: ui.callPhrase,
   onWord: w => sendCtl({ t: 'mword', w }),
   onClear: () => sendCtl({ t: 'mclear' }),
+  onBreak: () => sendCtl({ t: 'mbreak' }),
   onPhrase: updateCallPhrase
 });
 ui.btnMorse.onclick = () => openCallKeyer(ui.callKeyer.hidden);
@@ -3083,6 +3193,11 @@ ui.btnDropPair.onclick = () => {
 
 ui.btnRelink.onclick = () =>
   relink().catch(e => toast(e.message || 'Could not relink', 5000));
+
+ui.togRange.onclick = () => {
+  setLongRange(!longRange, true);
+  toast(longRange ? 'Long range on, for both phones: about half the voice data' : 'Normal voice quality, for both phones', 2600);
+};
 
 ui.togRoger.onclick = () => {
   rogerBeep = !rogerBeep;

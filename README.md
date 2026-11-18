@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Thirteen things have been added since the revert:
+as usual. The code is still based on version 12. Fourteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -208,6 +208,29 @@ as usual. The code is still based on version 12. Thirteen things have been added
   watch: Safari may need the microphone open to relink, so it is reopened
   for every relink, and an iPhone may move call audio from earpiece to
   speaker while the microphone is released.
+- **Morse spaces, sentences, and a long-range voice** (0.50).
+  - *Auto space.* About 2½ s of quiet after a character sends the word by
+    itself, as Morse's longer gap between words does. The send button fills
+    while the pause runs out; keying again cancels it. The **Auto ␣** toggle
+    next to abc/123/.,?/All turns it off, and then words go only on the
+    button.
+  - *New sentence.* BT (`– · · · –`) keyed on its own, with no word in
+    progress, ends the sentence: both phones show a dashed **¶ BT** mark in
+    the sender's colour and start a new line. Tap the mark to hear BT. The
+    guide shows `¶` for it and the hint line says so. Inside a word the same
+    pattern is still `=`. Older versions ignore the break message.
+  - *Long range* in settings: caps the voice so it gets through a weak or slow
+    link, for Wi-Fi HaLow tests. Either phone turns it on or off for both; it
+    resets at End.
+
+  Tested in Chrome on the Mac: the practice keyer and two linked tabs (word
+  sent by the pause, BT mark on both sides, a second BT refused, `A=B` kept as
+  one word, toggle off waits for the button). Long range measured with a test
+  tone: about 32 kbps of voice normally and about 16-19 kbps with the 12 kbps
+  cap; packets stay at 50 a second, because Chrome ignores a longer packet
+  time set from the page. Fewer, larger packets would help most on HaLow but
+  need a change to the pairing exchange, so that waits for a field test.
+  Not tested on phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

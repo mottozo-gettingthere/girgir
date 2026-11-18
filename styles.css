@@ -881,3 +881,23 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
 }
 .kx-w.you { color: var(--tx); }
 .kx-w.them { color: var(--rx); }
+/* A sentence break: a small tag in the sender's colour, then a new line. */
+.kx-br {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em;
+  padding: 1px 5px; margin: 0 2px; border-radius: 4px; cursor: pointer;
+  background: none; border: 1px dashed currentColor; vertical-align: 2px; opacity: 0.8;
+}
+.kx-br.you { color: var(--tx); }
+.kx-br.them { color: var(--rx); }
+.kx-row .kx-auto-tog { margin-left: 6px; }
+/* The send button fills while the long pause runs out. */
+.kx-actions .btn { position: relative; overflow: hidden; }
+.kx-actions .btn.kx-filling::after {
+  content: ''; position: absolute; left: 0; bottom: 0; height: 3px; width: 100%;
+  background: currentColor; opacity: 0.55; transform-origin: left;
+  animation: kx-fill var(--gap, 1600ms) linear forwards;
+}
+@keyframes kx-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .kx-actions .btn.kx-filling::after { animation: none; transform: scaleX(1); opacity: 0.3; }
+}
