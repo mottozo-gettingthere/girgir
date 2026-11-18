@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 50;
+const APP_VERSION = 51;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -2653,7 +2653,27 @@ function makeKeyer(root, opts) {
   const btnClear = el('button', 'tog', 'Clear');
   actions.append(btnBack, btnDone, btnClear);
 
-  root.append(panel, row, key, actions);
+  /* How it works, folded away until asked for: what each move does, and in
+     grey why it is there. */
+  const how = el('details', 'kx-how');
+  how.append(el('summary', null, 'How keying works'));
+  const dl = el('dl');
+  const doneName = opts.doneLabel;
+  [
+    ['tap · hold', 'Dot · dash', 'A tap is a dot, a hold is a dash.'],
+    ['short pause', 'Letter lands', 'A brief stop turns the dots and dashes into a letter.'],
+    ['long pause', 'Word goes', 'About 2½ s of quiet sends it, like the longer gap between words in real Morse. With Auto off, press ' + doneName + '.'],
+    ['– · · · –', '¶ New sentence', 'On its own this is BT, the operator\'s break sign. Starts a new line' + (opts.onWord ? ' on both phones' : '') + '. Inside a word it is still =.'],
+    ['abc 123 .,?', 'Guide only', 'Choose what the guide suggests. Every character decodes either way.']
+  ].forEach(([k, what, why]) => {
+    const dt = el('dt', null, k);
+    const dd = el('dd');
+    dd.append(el('b', null, what), el('span', null, why));
+    dl.append(dt, dd);
+  });
+  how.append(dl);
+
+  root.append(panel, row, key, actions, how);
 
   let syms = '', word = '', phrase = [], note = '';
   let downAt = 0, gapTimer = 0, wordTimer = 0, clearArmed = 0;
@@ -2717,7 +2737,9 @@ function makeKeyer(root, opts) {
       nextEl.textContent = word
         ? (autoSpace ? 'Next character, or pause to send the word'
                      : 'Next character, or ' + opts.doneLabel.toLowerCase() + ' to finish the word')
-        : 'Start with a dot or a dash   ·   – · · · – on its own = new sentence';
+        : (phrase.length && !phrase[phrase.length - 1].br
+          ? 'Next word, or – · · · – for a new sentence'
+          : 'Start with a dot or a dash');
     } else if (syms === BT && !word) {
       nextEl.append(el('b', null, 'pause'), ' → new sentence (BT)');
     } else if (!cands.length) {
@@ -2763,6 +2785,8 @@ function makeKeyer(root, opts) {
       p.append(b, ' ');
     });
     if (opts.onPhrase) opts.onPhrase(phrase.length);
+    /* The hint line depends on the phrase too (BT only after a word). */
+    if (!syms) render();
   }
 
   function commit() {
@@ -3196,7 +3220,7 @@ ui.btnRelink.onclick = () =>
 
 ui.togRange.onclick = () => {
   setLongRange(!longRange, true);
-  toast(longRange ? 'Long range on, for both phones: about half the voice data' : 'Normal voice quality, for both phones', 2600);
+  toast(longRange ? 'Long range on, both phones' : 'Normal voice, both phones', 2600);
 };
 
 ui.togRoger.onclick = () => {

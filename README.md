@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Fourteen things have been added since the revert:
+as usual. The code is still based on version 12. Fifteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -231,6 +231,13 @@ as usual. The code is still based on version 12. Fourteen things have been added
   time set from the page. Fewer, larger packets would help most on HaLow but
   need a change to the pairing exchange, so that waits for a field test.
   Not tested on phones.
+- **Plain explanations in the app** (0.51). The settings switches (Half
+  duplex, Roger beep, Keep screen on, Long range) are now rows with a switch,
+  each saying in one line what it does and, in grey, why it is there. The
+  Morse keyer has a folded **How keying works** list: tap and hold, short
+  pause, long pause, BT, and what abc/123/.,? choose. The hint under the
+  slate suggests BT only once a word has been sent. Checked at phone width in
+  Chrome; not on phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

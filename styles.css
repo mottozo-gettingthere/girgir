@@ -610,6 +610,34 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
 
 .sheet .note { margin: 0; }
 
+/* Settings switches: name, what it does, then why, in falling weight. */
+.switches { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.sw {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  padding: 12px 0; text-align: left; cursor: pointer;
+  background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--fg);
+}
+.sw-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; font-family: var(--sans); }
+.sw-text b {
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg);
+}
+.sw-text span { font-size: 14px; line-height: 1.35; color: var(--fg); opacity: 0.86; }
+.sw-text i { font-style: normal; font-size: 12px; line-height: 1.4; color: var(--muted); }
+.sw-knob {
+  flex: none; position: relative; width: 40px; height: 24px; border-radius: 12px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  transition: background .15s ease, border-color .15s ease;
+}
+.sw-knob::after {
+  content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--dim); transition: transform .15s ease, background .15s ease;
+}
+.sw[aria-pressed="true"] .sw-knob { background: rgba(79,182,163,0.18); border-color: rgba(79,182,163,0.5); }
+.sw[aria-pressed="true"] .sw-knob::after { transform: translateX(16px); background: var(--rx); }
+.sw:focus-visible { outline: 2px solid var(--rx); outline-offset: 2px; border-radius: 6px; }
+@media (prefers-reduced-motion: reduce) { .sw-knob, .sw-knob::after { transition: none; } }
+
 @media (min-width: 560px) {
   .sheet { align-items: center; }
 }
@@ -869,6 +897,29 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
 .kx-actions { display: grid; grid-template-columns: 64px 1fr 76px; gap: 8px; }
 .kx-actions .btn { width: 100%; }
 .kx-back { font-size: 20px; padding: 6px; }
+.kx-how { border-top: 1px solid var(--line); padding-top: 10px; }
+.kx-how summary {
+  font-size: 12px; color: var(--muted); cursor: pointer;
+  list-style: none; display: flex; align-items: center; gap: 8px;
+}
+.kx-how summary::-webkit-details-marker { display: none; }
+.kx-how summary::before {
+  content: ''; width: 6px; height: 6px; flex: none;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+}
+.kx-how[open] summary::before { transform: rotate(45deg); }
+.kx-how dl {
+  display: grid; grid-template-columns: max-content 1fr; gap: 12px 14px;
+  margin: 12px 0 2px; align-items: baseline;
+}
+.kx-how dt {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em; color: var(--tx);
+  white-space: nowrap;
+}
+.kx-how dd { margin: 0; display: flex; flex-direction: column; gap: 2px; font-family: var(--sans); }
+.kx-how dd b { font-size: 14px; font-weight: 600; color: var(--fg); }
+.kx-how dd span { font-size: 12px; line-height: 1.45; color: var(--muted); }
 .kx-phrase {
   min-height: 48px; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--panel);

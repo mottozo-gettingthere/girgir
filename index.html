@@ -391,14 +391,14 @@
              autocomplete="off" autocapitalize="words" spellcheck="false"
              aria-label="Your name, shown on the other phone">
     </div>
-    <p class="note">Shown on the other phone instead of THEM. Leave it empty and the plain labels are used.</p>
+    <p class="note">Shown on their phone instead of THEM. Optional.</p>
 
     <div class="vol">
       <span class="k">MIC</span>
       <input type="range" id="micLvl" min="0" max="200" value="100" aria-label="Microphone level">
       <span class="v" id="micVal">100</span>
     </div>
-    <p class="note">How loudly you are sent. Push past 100 for a quiet headset; too far and you will distort.</p>
+    <p class="note">How loud you are sent. Past 100 lifts a quiet headset; too far distorts.</p>
 
     <div class="vol" id="volRow" hidden>
       <span class="k">VOL</span>
@@ -417,15 +417,24 @@
       <span class="outnote" id="outNote">—</span>
     </div>
 
-    <div class="toggles">
-      <button class="tog" id="togHalf" aria-pressed="true">Half duplex</button>
-      <button class="tog" id="togRoger" aria-pressed="true">Roger beep</button>
-      <button class="tog" id="togAwake" aria-pressed="true">Keep screen on</button>
-      <button class="tog" id="togRange" aria-pressed="false">Long range</button>
+    <div class="switches">
+      <button class="sw" id="togHalf" aria-pressed="true">
+        <span class="sw-text"><b>Half duplex</b><span>Mutes them while you talk.</span><i>So your own voice never echoes back. Hold and Latch only.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togRoger" aria-pressed="true">
+        <span class="sw-text"><b>Roger beep</b><span>A short chirp on their phone when you let go.</span><i>So they know you're done and it's their turn.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togAwake" aria-pressed="true">
+        <span class="sw-text"><b>Keep screen on</b><span>Stops the screen sleeping while linked.</span><i>Turn off to pocket an Android, best in Open. An iPhone has to stay on.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togRange" aria-pressed="false">
+        <span class="sw-text"><b>Long range</b><span>Sends half the voice data.</span><i>For weak or far links, like a long-range Wi-Fi box. Sounds a bit flatter. Switches both phones; off again at End.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
     </div>
-    <p class="note">Half duplex mutes the other person while you transmit, so you never hear yourself back. Roger beep sounds a short tone when they stop talking. Both start on.</p>
-    <p class="note">Keep screen on holds the screen awake while you are linked. Turn it off to pocket the phone — on Android the channel keeps running with the screen off, best in OPEN mode. An iPhone suspends the page either way, so it has to stay awake there.</p>
-    <p class="note">Long range sends about half the voice data, so speech still gets through on a weak or slow link, such as a long-range Wi-Fi box. It sounds a little flatter. Turning it on or off changes both phones, and it resets when the channel ends.</p>
   </div>
 </div>
 
