@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Fifteen things have been added since the revert:
+as usual. The code is still based on version 12. Sixteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -238,6 +238,32 @@ as usual. The code is still based on version 12. Fifteen things have been added 
   pause, long pause, BT, and what abc/123/.,? choose. The hint under the
   slate suggests BT only once a word has been sent. Checked at phone width in
   Chrome; not on phones.
+- **Groups** (0.52). **+ Person** on a linked phone pairs another phone with
+  the usual two scans; the new phone just uses Join channel, so any version
+  can join. The phone that adds people becomes the hub. For each link it
+  mixes its own microphone with every other link's voice, leaving out that
+  link's own, so nobody hears themselves; Morse, BT, pings and long range are
+  passed on with the sender's name. Members see who is talking ("BEA
+  TALKING") and how many are in the group ("Hub +1"). The hub shows a chip
+  per phone, lit while it talks, with × to take that phone off. If the first
+  phone leaves, the hub carries on with the others; when everyone has gone it
+  goes on standby as a two-phone link does. A member that taps End is
+  dropped at once; one that goes silent is dropped after 12 s. Up to five
+  extra phones per hub; a member can be a hub for more. The two-phone link
+  is unchanged until someone taps + Person, and goes back to its plain form
+  when the extras leave.
+
+  Tested in Chrome on the Mac with three linked tabs, each with its own test
+  tone, checked by frequency on the receiving side: each member hears the
+  other two, nobody hears their own voice (−99 dB, noise level), a member's
+  voice still passes through while the hub is talking and its own speaker
+  is muted, Morse/BT/long range/pings reach all three, removing a phone,
+  the first phone leaving, everyone leaving, and audio after the group
+  shrinks back to two. Not tested on phones. Risks: the hub decodes and
+  re-encodes every voice, so an older phone as hub may run warm; on an
+  iPhone hub, Safari's Web Audio is the weak point (see 0.48), so an Android
+  phone is the safer hub. A phone that is a hub cannot be added to another
+  group, and the hub must stay in the channel.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
@@ -475,6 +501,15 @@ never a surprise. The alarm also skips the rate limit the other two obey.
 The tone is generated on the receiving phone rather than sent through the voice
 stream, so it stays clean and works whichever mode either of you is in, even
 with a muted microphone.
+
+### More than two phones
+
+On a linked phone, tap **+ Person**. It shows a code; on the new phone tap
+**Join channel** and scan it, then let the first phone scan the reply. Repeat
+for each person, up to five per phone. The phone that adds people is the hub:
+everyone's voice, Morse and pings go through it, so it should stay in the
+channel and ideally be an Android with good battery. Names show as chips; ×
+takes a phone off. Each phone still picks its own talk mode.
 
 ### Settings
 

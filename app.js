@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 51;
+const APP_VERSION = 52;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -60,7 +60,8 @@ const ui = {
   outRow: $('outRow'), outSel: $('outSel'), outNote: $('outNote'),
   talk: $('talkBtn'), talkLabel: $('talkLabel'),
   ping: $('pingBtn'),
-  togHalf: $('togHalf'), togRoger: $('togRoger'), togRange: $('togRange'), hangup: $('btnHangup'),
+  togHalf: $('togHalf'), togRoger: $('togRoger'), togRange: $('togRange'),
+  groupRow: $('groupRow'), btnAdd: $('btnAdd'), hangup: $('btnHangup'),
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
@@ -98,6 +99,9 @@ let wakeLock = null, hbTimer = 0, statsTimer = 0, rtt = null;
 let pingSeq = 0, duckTimer = 0, holdTimer = 0, alarmTimer = 0, urgentArmed = false;
 let helpReturn = 'setup', volumeWorks = false;
 let lastLost = null, lastRecv = null;
+let extras = [], adding = null, hub = null, hubTimer = 0;
+let extraSeq = 0, relaySeq = 0, groupSize = 0, peerTalker = '';
+let savedCancel1 = null, savedCancel2 = null;
 
 /* ---------------- settings ---------------- */
 
@@ -337,6 +341,7 @@ function playSent() {
 /* Mute incoming audio briefly so a tone is not buried under speech. */
 function duck(ms) {
   ui.remoteAudio.muted = true;
+  syncExtrasOutput();
   clearTimeout(duckTimer);
   duckTimer = setTimeout(syncDuck, ms);
 }
@@ -345,6 +350,7 @@ function syncDuck() {
      would mute the other person for the whole call. It only means anything
      while a press-to-talk gate is what opens the mic. */
   ui.remoteAudio.muted = halfDuplex && live && mode !== 'open';
+  syncExtrasOutput();
 }
 
 /* iOS ignores volume on media elements. Detect it rather than show a dead slider. */
@@ -365,6 +371,7 @@ function initVolume() {
       volume = Number(ui.vol.value);
       ui.volVal.textContent = String(volume);
       a.volume = volume / 100;
+      syncExtrasOutput();
       save();
     };
   }
@@ -437,7 +444,7 @@ async function initOutput() {
   if (typeof ui.remoteAudio.setSinkId !== 'function') { showDefaultRouting(); return; }
   await refreshOutputs();
   ui.outSel.onchange = async () => {
-    try { await ui.remoteAudio.setSinkId(ui.outSel.value); }
+    try { await ui.remoteAudio.setSinkId(ui.outSel.value); syncExtrasOutput(); }
     catch (e) { toast('This phone will not switch output'); }
   };
 }
@@ -538,6 +545,7 @@ function acquireMic() {
     showInput();
     if (!graphReady) buildGraph();
     attachCapture();
+    if (extras.length) hubWire();
   })().finally(() => { micOpening = null; });
   return micOpening;
 }
@@ -848,7 +856,7 @@ function setLive(on) {
     if (pc && pc.connectionState === 'connected') scheduleMicRelease();
   }
   syncDuck();
-  sendCtl({ t: 'mic', live: on });
+  sendMicState();
   if (on) buzz(12);
   setSessionState(on || mode === 'open');
   updateTalk();
@@ -896,6 +904,7 @@ function micGoDirect() {
   micTrack.enabled = live;
   const sender = audioSender();
   if (sender) sender.replaceTrack(micRawTrack).catch(() => {});
+  if (extras.length) hubWire();
   toast('Your voice is now sent straight from the microphone. Mic level and voices are off for this call.', 7000);
 }
 
@@ -927,8 +936,13 @@ function updateStatus() {
   const s = ui.statusText;
   s.classList.remove('tx', 'rx');
   if (live) { s.textContent = "YOU'RE LIVE"; s.classList.add('tx'); }
-  else if (remoteLive) { s.textContent = 'THEY’RE TALKING'; s.classList.add('rx'); }
-  else s.textContent = 'QUIET';
+  else {
+    const r = remoteTalkers();
+    if (r.any) {
+      s.textContent = r.who ? r.who.toUpperCase().slice(0, 22) + ' TALKING' : 'THEY’RE TALKING';
+      s.classList.add('rx');
+    } else s.textContent = 'QUIET';
+  }
 }
 
 /* ---------------- battery ---------------- */
@@ -964,8 +978,9 @@ function wireChannel(channel) {
   dc = channel;
   dc.onopen = () => {
     setPill('linked', 'LINKED');
-    sendCtl({ t: 'mic', live });
+    sendMicState();
     sendCtl({ t: 'name', name: myName });
+    if (extras.length) sendGroup();
     if (myBattery) sendCtl({ t: 'stat', batt: myBattery });
     startHeartbeat();
   };
@@ -979,12 +994,14 @@ function wireChannel(channel) {
       remoteLive = !!m.live;
       /* "Over" is for whoever is listening, so the beep belongs here - on the
          phone that just stopped receiving - not on the talker's own handset. */
+      peerTalker = cleanList(m.who);
       if (spoke && !remoteLive && rogerBeep) playRoger();
       updateStatus();
+      if (extras.length) { sendMicState(); renderGroup(); }
     }
     else if (m.t === 'ping') {
       const lvl = typeof m.level === 'number' ? m.level : (m.urgent ? 1 : 0);
-      receivePing(Math.max(0, Math.min(2, lvl)));
+      receivePing(Math.max(0, Math.min(2, lvl)), cleanList(m.from) || (extras.length ? peerName : ''));
       sendCtl({ t: 'ack', id: m.id });
     }
     else if (m.t === 'name') { peerName = cleanName(m.name); updateNames(); }
@@ -994,32 +1011,18 @@ function wireChannel(channel) {
     else if (m.t === 'bye') {
       toast((peerName || 'They') + ' are re-pairing - tap Join channel', 8000);
     }
-    else if (m.t === 'ack') { toast('Ping delivered'); }
+    else if (m.t === 'ack') { if (String(m.id).charAt(0) !== 'r') toast('Ping delivered'); }
+    else if (m.t === 'group') { groupSize = Math.max(0, Math.min(99, m.size | 0)); updateNames(); }
+    else if (m.t === 'removed') { toast('You were taken off the channel', 5000); hangUp(); return; }
     else if (m.t === 'range') {
       const on = !!m.long;
       if (on !== longRange) {
-        setLongRange(on, false);
-        toast((peerName || 'They') + (on ? ' turned on long range' : ' turned long range off'), 3000);
+        setLongRange(on, extras.length > 0);
+        toast((cleanList(m.from) || peerName || 'They') + (on ? ' turned on long range' : ' turned long range off'), 3000);
       }
     }
-    else if (m.t === 'mword' && callKeyer) {
-      const w = cleanWord(m.w);
-      if (w) {
-        callKeyer.addWord(w, 'them');
-        playSent();
-        buzz(30);
-        if (ui.callKeyer.hidden) toast((peerName || 'They') + ' keyed: ' + w, 4000);
-      }
-    }
-    else if (m.t === 'mbreak' && callKeyer) {
-      if (callKeyer.addBreak('them')) {
-        playSent();
-        if (ui.callKeyer.hidden) toast((peerName || 'They') + ' started a new sentence (BT)', 3000);
-      }
-    }
-    else if (m.t === 'mclear' && callKeyer) {
-      callKeyer.clearPhrase(false);
-      toast((peerName || 'They') + ' cleared the phrase');
+    else if (m.t === 'mword' || m.t === 'mbreak' || m.t === 'mclear') {
+      showShared(m, cleanList(m.from) || peerName || 'They');
     }
     else if (m.t === 'hb') { sendCtl({ t: 'hbr', ts: m.ts }); }
     else if (m.t === 'hbr') { rtt = Math.round(performance.now() - m.ts); }
@@ -1028,6 +1031,7 @@ function wireChannel(channel) {
       ui.vBattThem.classList.toggle('bad', m.batt.lvl <= 15 && !m.batt.chg);
       ui.vBattThem.classList.toggle('warn', m.batt.lvl > 15 && m.batt.lvl <= 30 && !m.batt.chg);
     }
+    if (RELAY_TYPES.has(m.t)) relay('p', m);
   };
 }
 
@@ -1250,7 +1254,10 @@ function cleanName(v) {
 
 function updateNames() {
   ui.labelYou.textContent = myName ? myName + ' (me)' : 'YOU';
-  ui.labelThem.textContent = peerName || 'THEM';
+  const people = joinedExtras();
+  const first = (primaryUp() || !people.length) ? (peerName || 'THEM') : (people[0].name || 'THEM');
+  const more = (primaryUp() ? people.length : Math.max(0, people.length - 1)) + Math.max(0, groupSize - 2);
+  ui.labelThem.textContent = first + (more ? ' +' + more : '');
   ui.labelYou.title = myName ? myName + ' - you' : 'You';
   ui.labelThem.title = peerName ? peerName + ' - the other phone' : 'The other phone';
 }
@@ -1262,7 +1269,7 @@ function setMyName(v, announce) {
     else localStorage.removeItem(NAME_KEY);
   } catch (e) { /* storage blocked */ }
   updateNames();
-  if (announce) sendCtl({ t: 'name', name: myName });
+  if (announce) sendAll({ t: 'name', name: myName });
 }
 
 function loadName() {
@@ -1287,6 +1294,7 @@ function settlePill() {
 /* The other app is gone for good, so there is nothing to renegotiate and no
    point waiting: this phone goes on standby by itself. */
 function peerGone() {
+  if (primaryLeftGroup()) return;
   stopHeartbeat();
   lastHeard = 0;
   if (ui.views.live.hidden && ui.views.code.hidden) return;
@@ -1308,6 +1316,7 @@ async function attemptRecovery(force) {
   if (!force && pc.connectionState === 'connected') return;
 
   if (!dc || dc.readyState !== 'open') {
+    if (primaryLeftGroup()) return;
     /* Nothing left to renegotiate over. Rather than asking for a decision,
        this phone goes on standby by itself - see standby() for why that is
        the whole procedure from here. */
@@ -1436,7 +1445,7 @@ function watchWorkerUpdates() {
   }).catch(() => {});
 }
 
-function receivePing(level) {
+function receivePing(level, who) {
   playPing(level);
   buzz(level >= 2 ? [0, 220, 90, 220, 90, 220, 90, 500]
      : level === 1 ? [0, 130, 80, 130, 80, 220] : [0, 150]);
@@ -1446,7 +1455,7 @@ function receivePing(level) {
   void ui.flash.offsetWidth;
   ui.flash.hidden = false;
   setTimeout(() => { ui.flash.hidden = true; }, level >= 2 ? 1700 : 540);
-  toast(level >= 2 ? 'ALARM' : level === 1 ? 'Urgent ping' : 'Ping',
+  toast((who ? who + ': ' : '') + (level >= 2 ? 'ALARM' : level === 1 ? 'Urgent ping' : 'Ping'),
         level >= 2 ? 3000 : 2500);
 }
 
@@ -1456,8 +1465,8 @@ function sendPing(level) {
   /* The alarm is deliberate, so it is allowed to jump the rate limit. */
   if (level < 2 && now - lastPingAt < 900) return;
   lastPingAt = now;
-  if (!dc || dc.readyState !== 'open') { toast('Not linked'); return; }
-  sendCtl({ t: 'ping', level: level, urgent: level >= 1, id: ++pingSeq });
+  if (!anyLinkOpen()) { toast('Not linked'); return; }
+  sendAll({ t: 'ping', level: level, urgent: level >= 1, id: ++pingSeq });
   playSent();
   buzz(level >= 2 ? [0, 90, 60, 90, 60, 90, 60, 300] : level === 1 ? [0, 60, 50, 60] : 25);
   ui.ping.classList.add('sent');
@@ -1474,6 +1483,7 @@ function newPeer() {
     ui.remoteAudio.srcObject = remoteStream;
     ui.remoteAudio.play().catch(() => {});
     attachRemoteAnalyser();
+    if (extras.length) hubWire();
   };
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
@@ -1523,7 +1533,8 @@ function setLongRange(on, tell) {
   longRange = on;
   ui.togRange.setAttribute('aria-pressed', String(on));
   if (pc) capBitrate(rangeBps());
-  if (tell) sendCtl({ t: 'range', long: on });
+  extras.forEach(extraBitrate);
+  if (tell) sendAll({ t: 'range', long: on });
 }
 
 async function capBitrate(bps) {
@@ -2031,6 +2042,7 @@ function goLive() {
   rememberChannel();
   channelUp = true;
   armGuard();
+  if (extras.length) afterGroupChange();
   /* Linked: from here the microphone is only held while talking. */
   if (!live) scheduleMicRelease();
   if (!ui.views.live.hidden) return;
@@ -2090,6 +2102,7 @@ async function requestWakeLock() {
 
 function hangUp() {
   setLive(false);
+  endGroup();
   releaseMic();
   stopHeartbeat();
   stopScanner();
@@ -2119,6 +2132,579 @@ function hangUp() {
   setPill('idle', 'IDLE');
   show('setup');
   disarmGuard();
+}
+
+/* ---------------- groups ---------------- */
+
+/* More than two phones. The phone that adds someone becomes a hub: each new
+   phone links to it with the ordinary two-scan pairing, so the phone joining
+   needs nothing new, and the first link carries on exactly as before.
+
+   The hub mixes for every link separately: its own microphone plus every
+   other link's incoming voice, never the listener's own, so nobody hears
+   themselves back. Morse, pings and long range are passed on the same way.
+   A phone that is a member of one hub can be a hub for others; the links
+   form a tree, so nothing loops. */
+const GROUP_MAX = 5;
+const RELAY_TYPES = new Set(['mword', 'mbreak', 'mclear', 'ping']);
+
+function cleanList(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 40);
+}
+
+function joinedExtras() { return extras.filter(x => x.joined); }
+function primaryUp() { return !!(pc && dc && dc.readyState === 'open'); }
+function anyLinkOpen() {
+  return primaryUp() || extras.some(x => x.dc && x.dc.readyState === 'open');
+}
+
+function sendTo(x, obj) {
+  if (x.dc && x.dc.readyState === 'open') {
+    try { x.dc.send(JSON.stringify(obj)); } catch (e) { /* closing */ }
+  }
+}
+function sendAll(obj) {
+  sendCtl(obj);
+  extras.forEach(x => sendTo(x, obj));
+}
+
+/* Passes a message on to every link but the one it came from, naming who
+   sent it. A relayed ping gets its own id, so the acks it draws are not
+   mistaken for replies to this phone's own pings. */
+function relay(from, m) {
+  if (!extras.length) return;
+  const out = Object.assign({}, m);
+  out.from = cleanList(m.from) || (from === 'p' ? peerName : from.name) || '';
+  if (out.t === 'ping') out.id = 'r' + (++relaySeq);
+  if (from !== 'p') sendCtl(out);
+  extras.forEach(x => { if (x !== from && x.joined) sendTo(x, out); });
+}
+
+/* Who is talking, as heard down one link: everyone except that link. */
+function talkersFor(skip) {
+  const names = [];
+  let any = false;
+  if (live) { any = true; names.push(myName); }
+  if (skip !== 'p' && remoteLive) { any = true; names.push(peerTalker || peerName); }
+  extras.forEach(x => {
+    if (x !== skip && x.joined && x.live) { any = true; names.push(x.talker || x.name); }
+  });
+  return { live: any, who: cleanList(names.filter(Boolean).join(', ')) };
+}
+
+function sendMicState() {
+  if (!extras.length) { sendCtl({ t: 'mic', live }); return; }
+  sendCtl(Object.assign({ t: 'mic' }, talkersFor('p')));
+  extras.forEach(x => sendTo(x, Object.assign({ t: 'mic' }, talkersFor(x))));
+}
+
+/* The status line names whoever is talking when it knows. */
+function remoteTalkers() {
+  const names = [];
+  if (remoteLive) names.push(peerTalker || (extras.length ? peerName : ''));
+  joinedExtras().forEach(x => { if (x.live) names.push(x.talker || x.name); });
+  return { any: remoteLive || joinedExtras().some(x => x.live), who: cleanList(names.filter(Boolean).join(', ')) };
+}
+
+function groupCount() {
+  return 1 + (primaryUp() ? 1 : 0) + joinedExtras().length;
+}
+function sendGroup() {
+  sendAll({ t: 'group', size: groupCount() });
+}
+
+function renderGroup() {
+  const row = ui.groupRow;
+  const people = joinedExtras();
+  row.hidden = !people.length;
+  row.innerHTML = '';
+  if (!people.length) { updateNames(); return; }
+  const chip = (name, talking, x) => {
+    const c = document.createElement('span');
+    c.className = 'person' + (talking ? ' talking' : '');
+    const n = document.createElement('span');
+    n.textContent = name;
+    c.append(n);
+    if (x) {
+      const b = document.createElement('button');
+      b.textContent = '×';
+      b.setAttribute('aria-label', 'Remove ' + name + ' from the channel');
+      b.onclick = () => removeExtra(x);
+      c.append(b);
+    }
+    row.append(c);
+  };
+  if (primaryUp()) chip(peerName || 'Phone 1', remoteLive, null);
+  people.forEach((x, i) => chip(x.name || 'Phone ' + (i + 2), x.live, x));
+  updateNames();
+}
+
+/* ----- audio: one mix per link ----- */
+
+function hubWire() {
+  if (!extras.length) { hubStop(); return; }
+  const ctx = audio();
+  if (!ctx) return;
+  if (!hub) {
+    hub = {
+      micStream: null, micSrc: null, micOut: ctx.createGain(),
+      pStream: null, pSrc: null, pIn: ctx.createGain(),
+      pDest: ctx.createMediaStreamDestination()
+    };
+  }
+  const feed = (stream, holder, srcKey, streamKey, into) => {
+    if (holder[streamKey] === stream) return;
+    if (holder[srcKey]) { try { holder[srcKey].disconnect(); } catch (e) {} }
+    holder[srcKey] = null;
+    holder[streamKey] = stream;
+    if (stream && stream.getAudioTracks().length) {
+      try {
+        holder[srcKey] = ctx.createMediaStreamSource(stream);
+        holder[srcKey].connect(into);
+      } catch (e) { holder[srcKey] = null; }
+    }
+  };
+  /* The outgoing microphone stream is muted while this phone is not live, so
+     taking it as the hub's microphone keeps the talk button in charge. */
+  feed(micStream, hub, 'micSrc', 'micStream', hub.micOut);
+  feed(remoteStream, hub, 'pSrc', 'pStream', hub.pIn);
+  extras.forEach(x => {
+    if (!x.in) x.in = ctx.createGain();
+    feed(x.stream, x, 'src', 'srcStream', x.in);
+  });
+
+  const inputs = [{ key: 'p', node: hub.pIn }].concat(extras.map(x => ({ key: x, node: x.in })));
+  const outputs = [{ key: 'p', dest: hub.pDest }].concat(extras.map(x => ({ key: x, dest: x.dest })));
+  [hub.micOut].concat(inputs.map(i => i.node)).forEach(n => { try { n.disconnect(); } catch (e) {} });
+  outputs.forEach(o => {
+    hub.micOut.connect(o.dest);
+    inputs.forEach(i => { if (i.key !== o.key) i.node.connect(o.dest); });
+  });
+  if (remoteAnalyser) extras.forEach(x => x.in.connect(remoteAnalyser));
+
+  const sender = audioSender();
+  const mixed = hub.pDest.stream.getAudioTracks()[0];
+  if (sender && sender.track !== mixed) sender.replaceTrack(mixed).catch(() => {});
+}
+
+function hubStop() {
+  if (!hub) return;
+  [hub.micSrc, hub.micOut, hub.pSrc, hub.pIn].forEach(n => { if (n) { try { n.disconnect(); } catch (e) {} } });
+  hub = null;
+  /* Back to sending the microphone itself, as a two-phone link always has. */
+  const sender = audioSender();
+  if (sender && micTrack && micTrack.readyState === 'live') sender.replaceTrack(micTrack).catch(() => {});
+}
+
+function extraBitrate(x) {
+  const sender = x.pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+  if (!sender || !sender.getParameters) return;
+  try {
+    const p = sender.getParameters();
+    p.encodings = (p.encodings && p.encodings.length) ? p.encodings : [{}];
+    p.encodings[0].maxBitrate = rangeBps();
+    sender.setParameters(p).catch(() => {});
+  } catch (e) { /* not supported here */ }
+}
+
+function syncExtrasOutput() {
+  extras.forEach(x => {
+    if (!x.el) return;
+    x.el.muted = ui.remoteAudio.muted;
+    if (volumeWorks) x.el.volume = volume / 100;
+    if (ui.outSel.value && typeof x.el.setSinkId === 'function' && !ui.outSel.hidden) {
+      x.el.setSinkId(ui.outSel.value).catch(() => {});
+    }
+  });
+}
+
+/* ----- links to the extra phones ----- */
+
+function gathered(p, timeout = 2500) {
+  if (p.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(t); p.removeEventListener('icegatheringstatechange', check); resolve(); };
+    const check = () => { if (p.iceGatheringState === 'complete') finish(); };
+    const t = setTimeout(finish, timeout);
+    p.addEventListener('icegatheringstatechange', check);
+  });
+}
+
+function opusOnly(p) {
+  try {
+    const caps = RTCRtpSender.getCapabilities('audio');
+    const opus = caps ? caps.codecs.filter(c => /opus/i.test(c.mimeType)) : [];
+    if (!opus.length) return;
+    p.getTransceivers().forEach(t => { if (t.setCodecPreferences) t.setCodecPreferences(opus); });
+  } catch (e) { /* not supported here */ }
+}
+
+function makeExtra(offerer) {
+  const ctx = audio();
+  const p = new RTCPeerConnection({ iceServers: [], iceCandidatePoolSize: 0 });
+  const x = {
+    id: ++extraSeq, pc: p, dc: null, offerer, joined: false, name: '', talker: '',
+    live: false, stream: null, src: null, srcStream: null, in: null, el: null,
+    dest: ctx.createMediaStreamDestination(), lastHeard: Date.now(),
+    dropTimer: 0, restarting: false, code: ''
+  };
+  const out = x.dest.stream;
+  p.addTrack(out.getAudioTracks()[0], out);
+  p.ontrack = ev => {
+    x.stream = ev.streams[0] || new MediaStream([ev.track]);
+    /* Playing it is how this phone hears them; Chrome also feeds a remote
+       stream into Web Audio only while a media element holds it. */
+    if (!x.el) {
+      x.el = new Audio();
+      x.el.autoplay = true;
+      x.el.setAttribute('playsinline', '');
+    }
+    x.el.srcObject = x.stream;
+    x.el.play().catch(() => {});
+    syncExtrasOutput();
+    hubWire();
+  };
+  p.onconnectionstatechange = () => extraState(x);
+  if (offerer) {
+    x.dc = p.createDataChannel('ctl', { ordered: true });
+    wireExtra(x);
+  } else {
+    p.ondatachannel = ev => { x.dc = ev.channel; wireExtra(x); };
+  }
+  return x;
+}
+
+function wireExtra(x) {
+  x.dc.onopen = () => {
+    x.lastHeard = Date.now();
+    sendTo(x, { t: 'name', name: myName });
+    if (longRange) sendTo(x, { t: 'range', long: true });
+    sendMicState();
+  };
+  /* A phone that taps End closes its channel at once; no need to wait for
+     the heartbeat to notice. */
+  x.dc.onclose = () => { if (x.joined) dropExtra(x, 'left the channel'); };
+  x.dc.onmessage = ev => {
+    x.lastHeard = Date.now();
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    const who = cleanList(m.from) || x.name || 'Someone';
+    if (m.t === 'mic') {
+      const was = x.live;
+      x.live = !!m.live;
+      x.talker = cleanList(m.who);
+      if (was && !x.live && rogerBeep) playRoger();
+      updateStatus();
+      sendMicState();
+      renderGroup();
+    }
+    else if (m.t === 'name') { x.name = cleanName(m.name); renderGroup(); }
+    else if (m.t === 'hb') sendTo(x, { t: 'hbr', ts: m.ts });
+    else if (m.t === 'ping') {
+      const lvl = typeof m.level === 'number' ? m.level : (m.urgent ? 1 : 0);
+      receivePing(Math.max(0, Math.min(2, lvl)), who);
+      sendTo(x, { t: 'ack', id: m.id });
+    }
+    else if (m.t === 'ack') { if (String(m.id).charAt(0) !== 'r') toast('Ping delivered'); }
+    else if (m.t === 'range') {
+      const on = !!m.long;
+      if (on !== longRange) {
+        setLongRange(on, true);
+        toast(who + (on ? ' turned on long range' : ' turned long range off'), 3000);
+      }
+    }
+    else if (m.t === 'ask-reoffer') restartExtra(x);
+    else if (m.t === 'reoffer') answerExtraRestart(x, m.sdp);
+    else if (m.t === 'reanswer') {
+      x.pc.setRemoteDescription({ type: 'answer', sdp: localOnly(m.sdp) }).catch(() => {});
+      x.restarting = false;
+    }
+    else showShared(m, who);
+    if (RELAY_TYPES.has(m.t)) relay(x, m);
+  };
+}
+
+/* Morse words, breaks and clears look the same wherever they came from. */
+function showShared(m, who) {
+  if (!callKeyer) return;
+  if (m.t === 'mword') {
+    const w = cleanWord(m.w);
+    if (!w) return;
+    callKeyer.addWord(w, 'them');
+    playSent();
+    buzz(30);
+    if (ui.callKeyer.hidden) toast(who + ' keyed: ' + w, 4000);
+  }
+  else if (m.t === 'mbreak') {
+    if (callKeyer.addBreak('them')) {
+      playSent();
+      if (ui.callKeyer.hidden) toast(who + ' started a new sentence (BT)', 3000);
+    }
+  }
+  else if (m.t === 'mclear') {
+    callKeyer.clearPhrase(false);
+    toast(who + ' cleared the phrase');
+  }
+}
+
+function extraState(x) {
+  const s = x.pc.connectionState;
+  if (s === 'connected') {
+    clearTimeout(x.dropTimer);
+    x.restarting = false;
+    if (!x.joined) extraJoined(x);
+  } else if (s === 'disconnected' && x.joined) {
+    /* Usually the network moving under it. Try a restart over the data
+       channel first; give up if nothing comes of it. */
+    clearTimeout(x.dropTimer);
+    x.dropTimer = setTimeout(() => {
+      if (x.pc.connectionState === 'connected') return;
+      restartExtra(x);
+      x.dropTimer = setTimeout(() => {
+        if (x.pc.connectionState !== 'connected') dropExtra(x, 'dropped out');
+      }, 10000);
+    }, 2000);
+  } else if (s === 'failed') {
+    if (x.joined) dropExtra(x, 'dropped out');
+    else if (adding === x) { toast('Could not link to the new phone. Same Wi-Fi? Try again.', 6000); cancelAdd(); }
+  }
+}
+
+async function restartExtra(x) {
+  if (!x.offerer || x.restarting || !x.dc || x.dc.readyState !== 'open') return;
+  x.restarting = true;
+  try {
+    await x.pc.setLocalDescription(await x.pc.createOffer({ iceRestart: true }));
+    await gathered(x.pc);
+    sendTo(x, { t: 'reoffer', sdp: localOnly(x.pc.localDescription.sdp) });
+  } catch (e) { /* the drop timer decides */ }
+  setTimeout(() => { x.restarting = false; }, 8000);
+}
+
+async function answerExtraRestart(x, sdp) {
+  try {
+    await x.pc.setRemoteDescription({ type: 'offer', sdp: localOnly(sdp) });
+    await x.pc.setLocalDescription(await x.pc.createAnswer());
+    await gathered(x.pc);
+    sendTo(x, { t: 'reanswer', sdp: localOnly(x.pc.localDescription.sdp) });
+  } catch (e) { /* the drop timer decides */ }
+}
+
+function closeExtra(x) {
+  clearTimeout(x.dropTimer);
+  if (x.dc) { try { x.dc.close(); } catch (e) {} }
+  try { x.pc.close(); } catch (e) {}
+  if (x.src) { try { x.src.disconnect(); } catch (e) {} }
+  if (x.in) { try { x.in.disconnect(); } catch (e) {} }
+  if (x.el) { x.el.srcObject = null; }
+  extras = extras.filter(e => e !== x);
+}
+
+function afterGroupChange() {
+  hubWire();
+  sendMicState();
+  sendGroup();
+  renderGroup();
+  updateStatus();
+  if (!joinedExtras().length && !adding) stopHubBeat();
+  /* Everyone else gone: do what a two-phone link does when the other side
+     leaves, rather than sit on a live screen talking to no one. */
+  if (!pc && !extras.length && channelUp && !ui.views.live.hidden) {
+    ui.dropText.textContent = 'Everyone has left. Going on standby \u2014 point two phones at each other, or tap End.';
+    ui.dropBar.hidden = false;
+    setPill('lost', 'ALONE');
+    clearTimeout(standbyTimer);
+    standbyTimer = setTimeout(() => {
+      if (!pc && !extras.length && !ui.views.live.hidden) standby().catch(() => {});
+    }, 2500);
+  }
+}
+
+function dropExtra(x, why) {
+  if (!extras.includes(x)) return;
+  closeExtra(x);
+  toast((x.name || 'A phone') + ' ' + why, 4000);
+  afterGroupChange();
+}
+
+function removeExtra(x) {
+  sendTo(x, { t: 'removed' });
+  /* A moment for the message to leave before the link closes. */
+  setTimeout(() => dropExtra(x, 'removed'), 200);
+}
+
+function extraJoined(x) {
+  x.joined = true;
+  x.lastHeard = Date.now();
+  if (adding === x) finishAdd();
+  extraBitrate(x);
+  startHubBeat();
+  /* The name comes over the data channel a moment after the link. */
+  setTimeout(() => { if (extras.includes(x)) toast((x.name || 'A new phone') + ' joined', 3000); }, 700);
+  afterGroupChange();
+}
+
+/* The same heartbeat as the first link, for the others: a member that hears
+   nothing for twelve seconds assumes the hub is gone, and the hub drops a
+   member it has not heard from in as long. */
+function startHubBeat() {
+  if (hubTimer) return;
+  hubTimer = setInterval(() => {
+    const now = Date.now();
+    joinedExtras().forEach(x => {
+      if (now - x.lastHeard > PEER_GONE_MS) { dropExtra(x, 'left the channel'); return; }
+      sendTo(x, { t: 'hb', ts: performance.now() });
+    });
+  }, 4000);
+}
+function stopHubBeat() { clearInterval(hubTimer); hubTimer = 0; }
+
+/* ----- adding a person ----- */
+
+function holdCancels() {
+  if (savedCancel1) return;
+  savedCancel1 = ui.cancel1.onclick;
+  savedCancel2 = ui.cancel2.onclick;
+  ui.cancel1.onclick = cancelAdd;
+  ui.cancel2.onclick = cancelAdd;
+}
+function restoreCancels() {
+  if (!savedCancel1) return;
+  ui.cancel1.onclick = savedCancel1;
+  ui.cancel2.onclick = savedCancel2;
+  savedCancel1 = savedCancel2 = null;
+}
+
+async function addPerson() {
+  if (adding) return;
+  if (joinedExtras().length >= GROUP_MAX) {
+    toast('This phone can take ' + GROUP_MAX + ' more people at most. Another member can add more.', 5000);
+    return;
+  }
+  try {
+    /* Safari only shows its address while capturing. */
+    await ensureMic();
+  } catch (e) {
+    toast('Microphone blocked. Allow it in site settings.', 5000);
+    return;
+  }
+  const x = makeExtra(true);
+  extras.push(x);
+  adding = x;
+  holdCancels();
+  try {
+    opusOnly(x.pc);
+    await x.pc.setLocalDescription(await x.pc.createOffer());
+    await gathered(x.pc);
+    x.code = await packDesc('O', x.pc.localDescription.sdp);
+  } catch (e) {
+    toast('Could not make a code. Try again.', 5000);
+    cancelAdd();
+    return;
+  }
+  if (adding !== x) return;
+  hubWire();
+  showAddCode();
+  if (!live) scheduleMicRelease();
+}
+
+function showAddCode() {
+  const x = adding;
+  if (!x) return;
+  showCode(x.code, 'ADD A PERSON',
+    'On the new phone: Join channel, then scan this. Then let this phone scan their reply.',
+    'Scan their reply',
+    () => openScanner('ADD A PERSON', 'Scan the reply code on the new phone.', takeAddCode),
+    takeAddCode, addFilter);
+}
+
+/* Someone coming back from standby shows an offer of their own. The rule for
+   who gives way matches standby's - the lower-sorting code answers - so the
+   two phones agree without talking. */
+function addFilter(code) {
+  if (!adding || !adding.code || code === adding.code) return false;
+  if (code.charAt(2) === 'A') return true;
+  return code > adding.code;
+}
+
+async function takeAddCode(code) {
+  let x = adding;
+  if (!x) return;
+  try {
+    const { role, sdp } = await unpackDesc(code);
+    if (role === 'A') {
+      if (!x.offerer) throw new Error('Scan the code on the new phone.');
+      ui.camWrap.hidden = true;
+      ui.scanStep.textContent = 'ADDING';
+      ui.scanHint.textContent = 'Linking up…';
+      show('scan');
+      await x.pc.setRemoteDescription({ type: 'answer', sdp });
+      return;
+    }
+    /* Their offer: answer it instead of our own. */
+    closeExtra(x);
+    x = makeExtra(false);
+    extras.push(x);
+    adding = x;
+    await x.pc.setRemoteDescription({ type: 'offer', sdp });
+    opusOnly(x.pc);
+    await x.pc.setLocalDescription(await x.pc.createAnswer());
+    await gathered(x.pc);
+    const answer = await packDesc('A', x.pc.localDescription.sdp);
+    hubWire();
+    showCode(answer, 'ADD A PERSON', 'Let their phone scan this. You will connect automatically.',
+      'Waiting for them…', () => toast('Still waiting for them to scan'));
+  } catch (e) {
+    toast(e.message || 'That code could not be read', 5000);
+    if (adding && adding.offerer) showAddCode();
+    else cancelAdd();
+  }
+}
+
+function finishAdd() {
+  adding = null;
+  restoreCancels();
+  stopScanner();
+  ui.camWrap.hidden = false;
+  show('live');
+}
+
+function cancelAdd() {
+  const x = adding;
+  adding = null;
+  if (x && !x.joined) closeExtra(x);
+  restoreCancels();
+  stopScanner();
+  ui.camWrap.hidden = false;
+  show('live');
+  afterGroupChange();
+}
+
+/* The first link going for good while others remain: carry on with them
+   rather than going on standby, which would take this phone off the call. */
+function primaryLeftGroup() {
+  if (!joinedExtras().length) return false;
+  const name = peerName;
+  teardownPeer();
+  peerName = '';
+  ui.dropBar.hidden = true;
+  setPill('linked', 'LINKED');
+  toast((name || 'A phone') + ' left the channel', 4000);
+  afterGroupChange();
+  return true;
+}
+
+function endGroup() {
+  if (adding && !adding.joined) closeExtra(adding);
+  adding = null;
+  restoreCancels();
+  extras.slice().forEach(closeExtra);
+  extras = [];
+  stopHubBeat();
+  hubStop();
+  groupSize = 0;
+  peerTalker = '';
+  renderGroup();
 }
 
 /* ---------------- leaving guard ---------------- */
@@ -2153,6 +2739,7 @@ window.addEventListener('popstate', () => {
   guardArmed = false;
   if (!channelUp) return;
   if (!ui.views.help.hidden) { show(helpReturn); armGuard(); return; }
+  if (adding) { cancelAdd(); armGuard(); return; }
   if (window.confirm('Leave the channel? The link ends, and getting back means pairing again.')) {
     hangUp();
   } else {
@@ -3102,7 +3689,7 @@ ui.togHalf.onclick = () => {
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
   'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose',
   'btnDrillLive', 'drillTogs', 'freeKeyer', 'freePhrase', 'btnMorse', 'callKeyer',
-  'callPhrase', 'togRange'].forEach(k => {
+  'callPhrase', 'togRange', 'groupRow', 'btnAdd'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -3126,12 +3713,13 @@ callKeyer = makeKeyer(ui.callKeyer, {
   doneLabel: 'Send word',
   emptyText: 'Finished words show here on both phones: yours amber, theirs teal.',
   phraseEl: ui.callPhrase,
-  onWord: w => sendCtl({ t: 'mword', w }),
-  onClear: () => sendCtl({ t: 'mclear' }),
-  onBreak: () => sendCtl({ t: 'mbreak' }),
+  onWord: w => sendAll({ t: 'mword', w }),
+  onClear: () => sendAll({ t: 'mclear' }),
+  onBreak: () => sendAll({ t: 'mbreak' }),
   onPhrase: updateCallPhrase
 });
 ui.btnMorse.onclick = () => openCallKeyer(ui.callKeyer.hidden);
+ui.btnAdd.onclick = () => addPerson().catch(e => { toast(e.message || 'Could not add', 5000); cancelAdd(); });
 
 ui.btnDrill.onclick = openDrill;
 ui.btnDrillLive.onclick = () => setDrillMode('live');

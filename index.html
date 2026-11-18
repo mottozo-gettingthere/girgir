@@ -221,6 +221,13 @@
       </details>
 
       <details class="more">
+        <summary>More than two phones</summary>
+        <p><b>+ Person</b> on a linked phone shows a new code. The new phone taps <b>Join channel</b> and scans it, then this phone scans their reply.</p>
+        <p>That phone becomes the <b>hub</b>: it passes everyone's voice, Morse and pings to everyone else, so it must stay in the channel. Up to five extra people per hub.</p>
+        <p>Tap <b>&times;</b> on a name to take that phone off the channel.</p>
+      </details>
+
+      <details class="more">
         <summary>What the readouts mean</summary>
       <dl class="legend">
         <dt>Bars, top right</dt><dd>Link quality, worked out from round-trip time, packet loss and jitter. Four bars is a clean link.</dd>
@@ -318,6 +325,8 @@
       <div class="cell"><span class="k">INPUT</span><span class="v" id="vInput">—</span></div>
     </div>
 
+    <div class="group-row" id="groupRow" aria-label="Phones in this channel" hidden></div>
+
     <div class="install" id="dropBar" hidden>
       <p class="install-text" id="dropText"></p>
       <button class="btn small" id="btnDropPair">Stand by now</button>
@@ -351,6 +360,7 @@
     <div class="toggles">
       <button class="tog" id="btnRelink">Relink</button>
       <button class="tog" id="btnMorse" aria-pressed="false">Morse</button>
+      <button class="tog" id="btnAdd">+ Person</button>
       <button class="tog danger" id="btnHangup">End</button>
     </div>
 
