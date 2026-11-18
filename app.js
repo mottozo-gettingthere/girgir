@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 54;
+const APP_VERSION = 55;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -940,7 +940,12 @@ function updateStatus() {
   else {
     const r = remoteTalkers();
     if (r.any) {
-      s.textContent = r.who ? r.who.toUpperCase().slice(0, 22) + ' TALKING' : 'THEY’RE TALKING';
+      if (r.who) {
+        s.textContent = '';
+        const b = document.createElement('bdi');
+        b.textContent = clipText(r.who.toUpperCase(), 22);
+        s.append(b, ' TALKING');
+      } else s.textContent = 'THEY’RE TALKING';
       s.classList.add('rx');
     } else s.textContent = 'QUIET';
   }
@@ -1256,11 +1261,28 @@ function initInstall() {
 
 /* The peer's name arrives over the data channel, so it is untrusted input:
    capped, stripped of control characters, and only ever written as text. */
-function cleanName(v) {
+/* Names can be any script or emoji, so they are counted and cut by what a
+   reader sees as one character (a grapheme), never mid-emoji or mid-letter.
+   Control characters go, and so do the direction overrides that could make
+   a name display as something else; the joiners emoji and Arabic need stay. */
+const segmenter = (typeof Intl !== 'undefined' && Intl.Segmenter)
+  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+function graphemes(v) {
+  const s = String(v);
+  return segmenter ? Array.from(segmenter.segment(s), x => x.segment) : Array.from(s);
+}
+function clipText(v, n, units = 96) {
+  let g = graphemes(v).slice(0, n);
+  while (g.length && g.join('').length > units) g.pop();
+  return g.join('');
+}
+function cleanText(v) {
   return String(v == null ? '' : v)
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
-    .trim()
-    .slice(0, 12);
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .trim();
+}
+function cleanName(v) {
+  return clipText(cleanText(v), 12, 64).trim();
 }
 
 function updateNames() {
@@ -2163,7 +2185,7 @@ const GROUP_MAX = 5;
 const RELAY_TYPES = new Set(['mword', 'mbreak', 'mclear', 'ping']);
 
 function cleanList(v) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 40);
+  return clipText(cleanText(v), 40, 160).trim();
 }
 
 function joinedExtras() { return extras.filter(x => x.joined); }
@@ -2238,9 +2260,13 @@ const RING_COLORS = ['#e07a5f', '#f2cc8f', '#81b29a', '#7aa5d8', '#c38fd6', '#e9
 let roster = null, lvMap = {}, onSet = new Set(), lvTimer = 0;
 const lvBuf = new Uint8Array(256);
 
+/* The first thing a reader sees: a letter in any script, or a whole emoji
+   (flags, skin tones and family sequences included). */
 function initialOf(name, fallback) {
-  const n = String(name || '').trim();
-  return n ? Array.from(n)[0].toUpperCase() : fallback;
+  const g = graphemes(cleanText(name))[0];
+  if (!g) return fallback;
+  const up = g.toUpperCase();
+  return graphemes(up).length === 1 ? up : g;
 }
 
 /* The people to draw, or null when there is no link to draw. */
@@ -2341,7 +2367,14 @@ function renderGroup() {
     face.textContent = initialOf(p.name, p.me ? 'Y' : list.length === 2 ? 'T' : String(i + 1));
     const name = document.createElement('span');
     name.className = 'pp-name';
-    name.textContent = label;
+    /* The name sits in its own direction, so an Arabic name reads right to
+       left without pulling "(me)" round with it. */
+    if (p.name) {
+      const b = document.createElement('bdi');
+      b.textContent = p.name;
+      name.append(b);
+      if (p.me) name.append(' (me)');
+    } else name.textContent = label;
     d.append(ring, face, name);
     d.setAttribute('aria-label', label);
     if (p.x) {

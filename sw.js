@@ -2,7 +2,7 @@
    network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
    decodes QR codes natively never download it, and those that need it fetch it on
    first run and get it cached by the runtime handler below. */
-const CACHE = 'girgir-v54';
+const CACHE = 'girgir-v55';
 const ASSETS = [
   './',
   'index.html',
@@ -14,7 +14,9 @@ const ASSETS = [
   'icon-512.png',
   'vendor/qrcode.js',
   'vendor/plex-mono-400.woff2',
-  'vendor/plex-mono-600.woff2'
+  'vendor/plex-mono-600.woff2',
+  'vendor/harmattan-ar-400.woff2',
+  'vendor/harmattan-ar-700.woff2'
 ];
 
 self.addEventListener('install', ev => {

@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Eighteen things have been added since the revert:
+as usual. The code is still based on version 12. Nineteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -280,6 +280,18 @@ as usual. The code is still based on version 12. Eighteen things have been added
   group started from it keeps those colours. The status line names the
   talker when they have set a name ("BEA TALKING"). Tested in two and three
   tabs; not on phones.
+- **Arabic and emoji names** (0.55). Names are counted and cut by visible
+  character, so an emoji (flags, skin tones, family sequences) or an Arabic
+  letter with its marks is never split; the limit is 12 such characters. A
+  circle's initial is the first one: a letter in any script or a whole emoji.
+  Direction-override characters are removed from names so one cannot display
+  as something else. Names sit in their own direction, so an Arabic name
+  reads right to left in the circle label and the status line. Arabic text
+  everywhere in the app uses Harmattan (SIL Open Font Licence, in
+  `vendor/OFL-Harmattan.txt`), only its Arabic glyphs, scaled to match the
+  Latin text and stored with the app so it works offline (about 270 KB for
+  two weights). Tested in three tabs with سارة, 🇸🇦 Bea and 👨‍👩‍👧 Cal; not on
+  phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

@@ -10,6 +10,25 @@
   src: url('vendor/plex-mono-600.woff2') format('woff2');
   font-weight: 600; font-style: normal; font-display: swap;
 }
+/* Arabic: Harmattan (SIL Open Font Licence, vendor/OFL-Harmattan.txt). Only
+   its Arabic glyphs are used, so Latin text keeps its own fonts and the file
+   loads only when Arabic appears. Kept on the phone, so it works offline. */
+@font-face {
+  font-family: 'Harmattan';
+  src: url('vendor/harmattan-ar-400.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+  /* Harmattan draws small beside the Latin fonts; this evens them up. */
+  size-adjust: 128%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C, U+200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+@font-face {
+  font-family: 'Harmattan';
+  src: url('vendor/harmattan-ar-700.woff2') format('woff2');
+  font-weight: 500 900; font-style: normal; font-display: swap;
+  /* Harmattan draws small beside the Latin fonts; this evens them up. */
+  size-adjust: 128%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C, U+200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
 
 :root {
   --bg: #0a0e10;
@@ -22,8 +41,8 @@
   --tx: #f0a830;
   --rx: #4fb6a3;
   --bad: #e2574c;
-  --mono: 'Plex Mono', ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace;
-  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Harmattan', 'Plex Mono', ui-monospace, SFMono-Regular, Menlo, 'Roboto Mono', monospace;
+  --sans: 'Harmattan', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
 }
 
@@ -967,7 +986,7 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
 .pp-face {
   position: relative; z-index: 1; display: grid; place-items: center;
   background: var(--c); color: #0a0e10;
-  font-family: var(--sans); font-size: calc(var(--sz) * 0.42); font-weight: 700;
+  font-family: var(--sans); font-size: calc(var(--sz) * 0.42); font-weight: 700; line-height: 1;
   opacity: 0.78; transition: opacity .2s ease;
 }
 .pp-ring {
