@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Seventeen things have been added since the revert:
+as usual. The code is still based on version 12. Eighteen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -274,6 +274,12 @@ as usual. The code is still based on version 12. Seventeen things have been adde
   dozen bytes each); your own ring is measured on your phone. The hub's
   circles carry the × for taking a phone off. Back to two phones, the bars
   return. Tested in three tabs on the Mac at phone width; not on phones.
+- **Circles for two phones too** (0.54). The YOU/THEM bars are gone: a
+  two-phone link shows two larger circles, you first. The phone that created
+  the channel always takes the first colour, so both screens agree, and a
+  group started from it keeps those colours. The status line names the
+  talker when they have set a name ("BEA TALKING"). Tested in two and three
+  tabs; not on phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
@@ -518,8 +524,8 @@ On a linked phone, tap **+ Person**. It shows a code; on the new phone tap
 **Join channel** and scan it, then let the first phone scan the reply. Repeat
 for each person, up to five per phone. The phone that adds people is the hub:
 everyone's voice, Morse and pings go through it, so it should stay in the
-channel and ideally be an Android with good battery. With three or more,
-everyone shows as a circle with their initial, ringed in their colour while
+channel and ideally be an Android with good battery. Everyone shows as a
+circle with their initial, ringed in their colour while
 they talk; on the hub, × on a circle takes that phone off. Each phone still
 picks its own talk mode.
 

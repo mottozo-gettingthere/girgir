@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 53;
+const APP_VERSION = 54;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -1007,8 +1007,8 @@ function wireChannel(channel) {
     }
     else if (m.t === 'name') {
       peerName = cleanName(m.name);
-      updateNames();
-      if (extras.length) { renderGroup(); sendRoster(); }
+      renderGroup();
+      if (extras.length) sendRoster();
     }
     else if (m.t === 'roster') { takeRoster(m); }
     else if (m.t === 'lv') { takeLevels(m); }
@@ -1280,6 +1280,7 @@ function setMyName(v, announce) {
     else localStorage.removeItem(NAME_KEY);
   } catch (e) { /* storage blocked */ }
   updateNames();
+  if (!ui.groupRow.hidden) renderGroup();
   if (announce) sendAll({ t: 'name', name: myName });
 }
 
@@ -2054,6 +2055,7 @@ function goLive() {
   channelUp = true;
   armGuard();
   if (extras.length) afterGroupChange();
+  else renderGroup();
   /* Linked: from here the microphone is only held while talking. */
   if (!live) scheduleMicRelease();
   if (!ui.views.live.hidden) return;
@@ -2213,7 +2215,7 @@ function sendMicState() {
 /* The status line names whoever is talking when it knows. */
 function remoteTalkers() {
   const names = [];
-  if (remoteLive) names.push(peerTalker || (extras.length ? peerName : ''));
+  if (remoteLive) names.push(peerTalker || peerName);
   joinedExtras().forEach(x => { if (x.live) names.push(x.talker || x.name); });
   return { any: remoteLive || joinedExtras().some(x => x.live), who: cleanList(names.filter(Boolean).join(', ')) };
 }
@@ -2241,7 +2243,7 @@ function initialOf(name, fallback) {
   return n ? Array.from(n)[0].toUpperCase() : fallback;
 }
 
-/* The people to draw, or null for a two-phone link. */
+/* The people to draw, or null when there is no link to draw. */
 function circlePeople() {
   if (joinedExtras().length) {
     const list = [{ id: 'h', name: myName, me: true }];
@@ -2251,6 +2253,15 @@ function circlePeople() {
   }
   if (roster && roster.people.length >= 3) {
     return roster.people.map(p => ({ id: p.id, name: p.name, me: p.id === roster.you }));
+  }
+  /* Two phones: you first on each screen, but colours by role - the phone
+     that created the channel takes the first colour - so both phones agree
+     on who is which colour. */
+  if (pc) {
+    return [
+      { id: 'me', name: myName, me: true, ci: amOfferer ? 0 : 1 },
+      { id: 'them', name: peerName, ci: amOfferer ? 1 : 0 }
+    ];
   }
   return null;
 }
@@ -2313,19 +2324,21 @@ function renderGroup() {
   row.innerHTML = '';
   updateNames();
   if (!list) return;
+  row.classList.toggle('duo', list.length === 2);
   list.forEach((p, i) => {
     const d = document.createElement('div');
     d.className = 'pp' + (p.me ? ' me' : '');
     d.dataset.id = p.id;
     /* By place in the hub's list, which every phone gets in the same order:
        the same colour for a person on every screen, and no two alike. */
-    d.style.setProperty('--c', RING_COLORS[i % RING_COLORS.length]);
-    const label = p.me ? (p.name ? p.name + ' (me)' : 'You') : (p.name || 'Phone ' + (i + 1));
+    d.style.setProperty('--c', RING_COLORS[(p.ci != null ? p.ci : i) % RING_COLORS.length]);
+    const label = p.me ? (p.name ? p.name + ' (me)' : 'You')
+      : (p.name || (list.length === 2 ? 'Them' : 'Phone ' + (i + 1)));
     const ring = document.createElement('span');
     ring.className = 'pp-ring';
     const face = document.createElement('span');
     face.className = 'pp-face';
-    face.textContent = initialOf(p.name, p.me ? 'Y' : String(i + 1));
+    face.textContent = initialOf(p.name, p.me ? 'Y' : list.length === 2 ? 'T' : String(i + 1));
     const name = document.createElement('span');
     name.className = 'pp-name';
     name.textContent = label;
@@ -2357,6 +2370,9 @@ function updateRings() {
     } else if (mine) {
       lv = mine.lv[id] || 0;
       on = mine.on.includes(id);
+    } else if (id === 'them') {
+      lv = remoteAnalyser ? Math.min(1, levelOf(remoteAnalyser, lvBuf) * 4) : 0;
+      on = remoteLive;
     } else {
       lv = (lvMap[id] || 0) / 100;
       on = onSet.has(id);
