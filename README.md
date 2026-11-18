@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Sixteen things have been added since the revert:
+as usual. The code is still based on version 12. Seventeen things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -264,6 +264,16 @@ as usual. The code is still based on version 12. Sixteen things have been added 
   iPhone hub, Safari's Web Audio is the weak point (see 0.48), so an Android
   phone is the safer hub. A phone that is a hub cannot be added to another
   group, and the hub must stay in the channel.
+- **People as circles** (0.53). With three or more phones, the YOU/THEM bars
+  give way to a circle per person: their initial on a colour of their own,
+  their name below, and a ring in that colour that grows with their voice
+  while their microphone is open. Colours go by place in the hub's list, so a
+  person has the same colour on every phone and no two match (eight colours).
+  Members only receive one mixed stream, so the hub measures each voice and
+  sends the list of people plus about ten level readings a second (a few
+  dozen bytes each); your own ring is measured on your phone. The hub's
+  circles carry the × for taking a phone off. Back to two phones, the bars
+  return. Tested in three tabs on the Mac at phone width; not on phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
@@ -508,8 +518,10 @@ On a linked phone, tap **+ Person**. It shows a code; on the new phone tap
 **Join channel** and scan it, then let the first phone scan the reply. Repeat
 for each person, up to five per phone. The phone that adds people is the hub:
 everyone's voice, Morse and pings go through it, so it should stay in the
-channel and ideally be an Android with good battery. Names show as chips; ×
-takes a phone off. Each phone still picks its own talk mode.
+channel and ideally be an Android with good battery. With three or more,
+everyone shows as a circle with their initial, ringed in their colour while
+they talk; on the hub, × on a circle takes that phone off. Each phone still
+picks its own talk mode.
 
 ### Settings
 

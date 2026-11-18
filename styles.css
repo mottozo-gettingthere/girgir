@@ -953,17 +953,36 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
   .kx-actions .btn.kx-filling::after { animation: none; transform: scaleX(1); opacity: 0.3; }
 }
 
-/* Group: one chip per linked phone, lit while that phone talks. */
-.group-row { display: flex; flex-wrap: wrap; gap: 6px; }
-.person {
-  display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.06em;
-  padding: 4px 4px 4px 10px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+/* Group: a circle per phone, its initial on its own colour, and a ring that
+   grows with its voice. A dark gap keeps the ring apart from the face. */
+.group-row {
+  display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 22px 10px; padding: 16px 0 6px;
 }
-.person > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-right: 6px; }
-.person.talking { color: var(--rx); border-color: rgba(79,182,163,0.6); }
-.person button {
-  width: 22px; height: 22px; border-radius: 50%; border: 0; padding: 0;
-  background: var(--panel-2); color: var(--dim); font-size: 14px; line-height: 1; cursor: pointer;
+.pp { position: relative; display: flex; flex-direction: column; align-items: center; gap: 15px; width: 76px; --lv: 0; }
+.pp-face, .pp-ring { width: 60px; height: 60px; border-radius: 50%; }
+.pp-face {
+  position: relative; z-index: 1; display: grid; place-items: center;
+  background: var(--c); color: #0a0e10;
+  font-family: var(--sans); font-size: 25px; font-weight: 700;
+  opacity: 0.78; transition: opacity .2s ease;
 }
+.pp-ring {
+  position: absolute; top: 0; left: 50%; margin-left: -30px;
+  box-shadow: 0 0 0 3px var(--bg), 0 0 0 calc(5px + var(--lv) * 6px) var(--c);
+  opacity: 0; transition: box-shadow 80ms linear, opacity .2s ease;
+}
+.pp.talking .pp-face { opacity: 1; }
+.pp.talking .pp-ring { opacity: calc(0.45 + var(--lv) * 0.55); }
+.pp-name {
+  max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--muted);
+}
+.pp.me .pp-name, .pp.talking .pp-name { color: var(--fg); }
+.pp-x {
+  position: absolute; top: -6px; right: 2px; z-index: 2;
+  width: 24px; height: 24px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+  font-size: 14px; line-height: 1;
+}
+@media (prefers-reduced-motion: reduce) { .pp-ring, .pp-face { transition: none; } }

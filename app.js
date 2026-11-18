@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 52;
+const APP_VERSION = 53;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -61,7 +61,8 @@ const ui = {
   talk: $('talkBtn'), talkLabel: $('talkLabel'),
   ping: $('pingBtn'),
   togHalf: $('togHalf'), togRoger: $('togRoger'), togRange: $('togRange'),
-  groupRow: $('groupRow'), btnAdd: $('btnAdd'), hangup: $('btnHangup'),
+  groupRow: $('groupRow'), btnAdd: $('btnAdd'),
+  meters: document.querySelector('#viewLive .meters'), hangup: $('btnHangup'),
   vNet: $('vNet'), btnRelink: $('btnRelink'),
   sheet: $('sheet'), btnSettings: $('btnSettings'), btnSheetClose: $('btnSheetClose'),
   installBar: $('installBar'), installText: $('installText'), btnInstall: $('btnInstall'),
@@ -1004,7 +1005,13 @@ function wireChannel(channel) {
       receivePing(Math.max(0, Math.min(2, lvl)), cleanList(m.from) || (extras.length ? peerName : ''));
       sendCtl({ t: 'ack', id: m.id });
     }
-    else if (m.t === 'name') { peerName = cleanName(m.name); updateNames(); }
+    else if (m.t === 'name') {
+      peerName = cleanName(m.name);
+      updateNames();
+      if (extras.length) { renderGroup(); sendRoster(); }
+    }
+    else if (m.t === 'roster') { takeRoster(m); }
+    else if (m.t === 'lv') { takeLevels(m); }
     else if (m.t === 'reoffer') { takeReoffer(m.sdp); }
     else if (m.t === 'ask-reoffer') { attemptRecovery(true); }
     else if (m.t === 'reanswer') { takeReanswer(m.sdp); }
@@ -1176,6 +1183,10 @@ function teardownPeer() {
   remoteLive = false;
   lastLost = lastRecv = null;
   ui.remoteAudio.srcObject = null;
+  /* A member's view of the group came from this link. */
+  roster = null;
+  lvMap = {};
+  renderGroup();
   ui.vBattThem.textContent = '\u2014';
   ui.vNet.textContent = '\u2014';
   ui.meterThem.style.width = '0%';
@@ -2084,6 +2095,7 @@ function startMeters() {
         const l = levelOf(remoteAnalyser, bufB);
         ui.meterThem.style.width = Math.min(100, l * 320) + '%';
       }
+      updateRings();
     }
     meterRaf = requestAnimationFrame(step);
   };
@@ -2213,30 +2225,145 @@ function sendGroup() {
   sendAll({ t: 'group', size: groupCount() });
 }
 
+/* ----- circles: one per person, ringed by their voice ----- */
+
+/* With three or more phones the two level bars give way to a circle per
+   person: their initial on a colour of their own, and a ring that swells
+   with their voice. The hub can measure every voice; members cannot, since
+   they get one mixed stream, so the hub sends them the list of people and
+   about ten level readings a second. */
+const RING_COLORS = ['#e07a5f', '#f2cc8f', '#81b29a', '#7aa5d8', '#c38fd6', '#e9a3b5', '#6cc4c4', '#d4a373'];
+let roster = null, lvMap = {}, onSet = new Set(), lvTimer = 0;
+const lvBuf = new Uint8Array(256);
+
+function initialOf(name, fallback) {
+  const n = String(name || '').trim();
+  return n ? Array.from(n)[0].toUpperCase() : fallback;
+}
+
+/* The people to draw, or null for a two-phone link. */
+function circlePeople() {
+  if (joinedExtras().length) {
+    const list = [{ id: 'h', name: myName, me: true }];
+    if (primaryUp()) list.push({ id: 'p', name: peerName });
+    joinedExtras().forEach(x => list.push({ id: 'x' + x.id, name: x.name, x }));
+    return list;
+  }
+  if (roster && roster.people.length >= 3) {
+    return roster.people.map(p => ({ id: p.id, name: p.name, me: p.id === roster.you }));
+  }
+  return null;
+}
+
+/* Levels as the hub measures them, 0 to 1, and who has their mic open. */
+function hubLevels() {
+  const lv = {}, on = [];
+  const read = an => an ? Math.min(1, levelOf(an, lvBuf) * 4) : 0;
+  lv.h = live ? read(micAnalyser) : 0;
+  if (live) on.push('h');
+  if (primaryUp()) { lv.p = read(hub && hub.pAn); if (remoteLive) on.push('p'); }
+  joinedExtras().forEach(x => { lv['x' + x.id] = read(x.an); if (x.live) on.push('x' + x.id); });
+  return { lv, on };
+}
+
+function sendRoster() {
+  if (!hub && !extras.length) {
+    /* Back to two phones: tell the one left, so it drops its circles. */
+    sendCtl({ t: 'roster', you: 'p', people: [] });
+    return;
+  }
+  const people = [{ id: 'h', name: myName }];
+  if (primaryUp()) people.push({ id: 'p', name: peerName });
+  joinedExtras().forEach(x => people.push({ id: 'x' + x.id, name: x.name }));
+  sendCtl({ t: 'roster', you: 'p', people });
+  joinedExtras().forEach(x => sendTo(x, { t: 'roster', you: 'x' + x.id, people }));
+}
+
+function startLevels() {
+  if (lvTimer) return;
+  lvTimer = setInterval(() => {
+    if (!joinedExtras().length) { stopLevels(); return; }
+    const { lv, on } = hubLevels();
+    const l = {};
+    Object.keys(lv).forEach(k => { l[k] = Math.round(lv[k] * 100); });
+    sendAll({ t: 'lv', l, on });
+  }, 100);
+}
+function stopLevels() { clearInterval(lvTimer); lvTimer = 0; }
+
+function takeRoster(m) {
+  const people = Array.isArray(m.people) ? m.people.slice(0, 12).map(p => ({
+    id: String(p && p.id || '').slice(0, 8), name: cleanName(p && p.name)
+  })) : [];
+  roster = people.length >= 3 ? { you: String(m.you || '').slice(0, 8), people } : null;
+  if (!roster) { lvMap = {}; onSet = new Set(); }
+  renderGroup();
+}
+
+function takeLevels(m) {
+  lvMap = (m.l && typeof m.l === 'object') ? m.l : {};
+  onSet = new Set(Array.isArray(m.on) ? m.on.map(String) : []);
+}
+
 function renderGroup() {
   const row = ui.groupRow;
-  const people = joinedExtras();
-  row.hidden = !people.length;
+  const list = circlePeople();
+  row.hidden = !list;
+  ui.meters.hidden = !!list;
   row.innerHTML = '';
-  if (!people.length) { updateNames(); return; }
-  const chip = (name, talking, x) => {
-    const c = document.createElement('span');
-    c.className = 'person' + (talking ? ' talking' : '');
-    const n = document.createElement('span');
-    n.textContent = name;
-    c.append(n);
-    if (x) {
-      const b = document.createElement('button');
-      b.textContent = '×';
-      b.setAttribute('aria-label', 'Remove ' + name + ' from the channel');
-      b.onclick = () => removeExtra(x);
-      c.append(b);
-    }
-    row.append(c);
-  };
-  if (primaryUp()) chip(peerName || 'Phone 1', remoteLive, null);
-  people.forEach((x, i) => chip(x.name || 'Phone ' + (i + 2), x.live, x));
   updateNames();
+  if (!list) return;
+  list.forEach((p, i) => {
+    const d = document.createElement('div');
+    d.className = 'pp' + (p.me ? ' me' : '');
+    d.dataset.id = p.id;
+    /* By place in the hub's list, which every phone gets in the same order:
+       the same colour for a person on every screen, and no two alike. */
+    d.style.setProperty('--c', RING_COLORS[i % RING_COLORS.length]);
+    const label = p.me ? (p.name ? p.name + ' (me)' : 'You') : (p.name || 'Phone ' + (i + 1));
+    const ring = document.createElement('span');
+    ring.className = 'pp-ring';
+    const face = document.createElement('span');
+    face.className = 'pp-face';
+    face.textContent = initialOf(p.name, p.me ? 'Y' : String(i + 1));
+    const name = document.createElement('span');
+    name.className = 'pp-name';
+    name.textContent = label;
+    d.append(ring, face, name);
+    d.setAttribute('aria-label', label);
+    if (p.x) {
+      const b = document.createElement('button');
+      b.className = 'pp-x';
+      b.textContent = '×';
+      b.setAttribute('aria-label', 'Remove ' + label + ' from the channel');
+      b.onclick = () => removeExtra(p.x);
+      d.append(b);
+    }
+    row.append(d);
+  });
+}
+
+/* Called from the meter loop, about sixty times a second. */
+function updateRings() {
+  if (ui.groupRow.hidden) return;
+  const isHub = joinedExtras().length > 0;
+  const mine = isHub ? hubLevels() : null;
+  ui.groupRow.querySelectorAll('.pp').forEach(d => {
+    const id = d.dataset.id;
+    let lv, on;
+    if (d.classList.contains('me')) {
+      lv = live && micAnalyser ? Math.min(1, levelOf(micAnalyser, lvBuf) * 4) : 0;
+      on = live;
+    } else if (mine) {
+      lv = mine.lv[id] || 0;
+      on = mine.on.includes(id);
+    } else {
+      lv = (lvMap[id] || 0) / 100;
+      on = onSet.has(id);
+    }
+    d.style.setProperty('--lv', lv.toFixed(2));
+    d.classList.toggle('talking', on);
+  });
 }
 
 /* ----- audio: one mix per link ----- */
@@ -2281,6 +2408,13 @@ function hubWire() {
     inputs.forEach(i => { if (i.key !== o.key) i.node.connect(o.dest); });
   });
   if (remoteAnalyser) extras.forEach(x => x.in.connect(remoteAnalyser));
+  /* One analyser per voice, for the rings. */
+  if (!hub.pAn) { hub.pAn = ctx.createAnalyser(); hub.pAn.fftSize = 512; }
+  hub.pIn.connect(hub.pAn);
+  extras.forEach(x => {
+    if (!x.an) { x.an = ctx.createAnalyser(); x.an.fftSize = 512; }
+    x.in.connect(x.an);
+  });
 
   const sender = audioSender();
   const mixed = hub.pDest.stream.getAudioTracks()[0];
@@ -2398,7 +2532,7 @@ function wireExtra(x) {
       sendMicState();
       renderGroup();
     }
-    else if (m.t === 'name') { x.name = cleanName(m.name); renderGroup(); }
+    else if (m.t === 'name') { x.name = cleanName(m.name); renderGroup(); sendRoster(); }
     else if (m.t === 'hb') sendTo(x, { t: 'hbr', ts: m.ts });
     else if (m.t === 'ping') {
       const lvl = typeof m.level === 'number' ? m.level : (m.urgent ? 1 : 0);
@@ -2504,6 +2638,8 @@ function afterGroupChange() {
   hubWire();
   sendMicState();
   sendGroup();
+  sendRoster();
+  if (joinedExtras().length) startLevels(); else stopLevels();
   renderGroup();
   updateStatus();
   if (!joinedExtras().length && !adding) stopHubBeat();
@@ -2702,8 +2838,12 @@ function endGroup() {
   extras = [];
   stopHubBeat();
   hubStop();
+  stopLevels();
   groupSize = 0;
   peerTalker = '';
+  roster = null;
+  lvMap = {};
+  onSet = new Set();
   renderGroup();
 }
 
@@ -3689,7 +3829,7 @@ ui.togHalf.onclick = () => {
   'btnDrillHear', 'btnDrillDigits', 'btnDrillMarks', 'btnDrillReplay', 'btnDrillSkip',
   'btnDrillBack', 'btnDrillChart', 'morseSheet', 'morseChart', 'btnMorseClose',
   'btnDrillLive', 'drillTogs', 'freeKeyer', 'freePhrase', 'btnMorse', 'callKeyer',
-  'callPhrase', 'togRange', 'groupRow', 'btnAdd'].forEach(k => {
+  'callPhrase', 'togRange', 'groupRow', 'btnAdd', 'meters'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
