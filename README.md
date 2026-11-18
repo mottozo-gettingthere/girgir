@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Nineteen things have been added since the revert:
+as usual. The code is still based on version 12. Twenty things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -292,6 +292,25 @@ as usual. The code is still based on version 12. Nineteen things have been added
   Latin text and stored with the app so it works offline (about 270 KB for
   two weights). Tested in three tabs with سارة, 🇸🇦 Bea and 👨‍👩‍👧 Cal; not on
   phones.
+- **Morse arrives live** (0.56). A word from the other phone no longer
+  appears whole. Each letter plays its tone and appears as a blur that
+  sharpens with every dot and dash. It turns clear only when its last tone
+  ends, with the code it was made of shown underneath for a moment. Then the
+  next letter starts. A cursor blinks at the end of a word still arriving, so
+  the listener can try to read each letter by ear before it lands. Letters go
+  at the usual speed (a dot is 90 ms) with one extra beat between letters
+  and between words, so each clear letter can be read before the next one
+  starts. A BT sentence break arrives the same way, after the word before it.
+
+  The same playback works on demand. Tap any word in the phrase to hear it
+  again, letter by letter. Tap ▶ at the start of a line to hear the whole
+  sentence. Tap a letter in the word you are still keying to hear just that
+  one. Words arriving from the other phone always come first, cutting a
+  replay short, and pressing the key stops a replay. *Clear* stops whatever
+  is playing. If the keyer is closed when a word arrives, its toast waits
+  until the word is complete. Tested in two tabs: timing per letter, a word
+  arriving during a replay, BT after a word, and Clear mid-word. Not tested
+  on phones.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a

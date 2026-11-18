@@ -1008,3 +1008,68 @@ a.btn { display: block; box-sizing: border-box; text-align: center; text-decorat
   font-size: 14px; line-height: 1;
 }
 @media (prefers-reduced-motion: reduce) { .pp-ring, .pp-face { transition: none; } }
+
+/* Live Morse playback. A letter is a blur while its tone plays, sharpening
+   symbol by symbol, and lands clear when the tone ends; the dots and dashes
+   it was made of show under it, then fade. --ink is the letter's colour,
+   kept apart because the letter itself goes transparent while it plays. */
+.kx-w.you, .kx-br.you { --ink: var(--tx); }
+.kx-w.them, .kx-br.them { --ink: var(--rx); }
+.kx-lt { --ink: var(--fg); }
+.kx-word { display: inline-flex; flex-wrap: wrap; }
+.kx-lt {
+  font: inherit; letter-spacing: inherit; color: var(--fg);
+  background: none; border: 0; padding: 0; margin: 0; cursor: pointer;
+}
+.tx-ch { display: inline-block; }
+.tx-ch, .kx-lt, .kx-br { position: relative; }
+.tx-queued { display: none; }
+.tx-hidden { display: none; }
+.tx-ghost { opacity: 0; }
+.tx-on {
+  color: transparent !important;
+  text-shadow: 0 0 calc((1 - var(--p, 0)) * 7px + 0.5px)
+    color-mix(in srgb, var(--ink) calc(35% + var(--p, 0) * 65%), transparent);
+}
+.tx-on.tx-key {
+  text-shadow: 0 0 calc((1 - var(--p, 0)) * 7px + 0.5px)
+      color-mix(in srgb, var(--ink) calc(35% + var(--p, 0) * 65%), transparent),
+    0 0 14px color-mix(in srgb, var(--ink) 55%, transparent);
+}
+.tx-done { animation: tx-land 380ms cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes tx-land {
+  from { transform: scale(1.22); text-shadow: 0 0 12px var(--ink); }
+  to { transform: none; text-shadow: 0 0 0 transparent; }
+}
+[data-sy]::after {
+  content: attr(data-sy); position: absolute; left: 50%; top: calc(100% - 7px);
+  transform: translateX(-50%); pointer-events: none; white-space: nowrap;
+  font-family: var(--mono); font-size: 9px; line-height: 1; letter-spacing: 1px;
+  color: var(--ink); opacity: 0.9; text-shadow: none;
+}
+.kx-line [data-sy]::after { top: calc(100% - 2px); font-size: 10px; }
+.tx-done[data-sy]::after { animation: tx-sy-out 1.7s ease-in forwards; }
+@keyframes tx-sy-out { 0%, 45% { opacity: 0.9; } 100% { opacity: 0; } }
+/* A word still arriving ends in a blinking cursor. */
+.kx-w.tx-live::after {
+  content: ''; display: inline-block; width: 0.5em; height: 2px; margin-left: 2px;
+  background: var(--ink); vertical-align: -1px; animation: tx-caret 0.9s steps(2) infinite;
+}
+@keyframes tx-caret { to { visibility: hidden; } }
+/* Play a whole sentence: a small round button at the start of its line. */
+.kx-play {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin: 0 6px 0 0; padding: 0; vertical-align: 1px;
+  border: 1px solid var(--line); border-radius: 50%; background: none; color: var(--muted);
+  cursor: pointer;
+}
+.kx-play::before {
+  content: ''; margin-left: 2px;
+  border-style: solid; border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent currentColor;
+}
+.kx-play:active { color: var(--fg); border-color: var(--muted); }
+@media (prefers-reduced-motion: reduce) {
+  .tx-done { animation: none; }
+  .kx-w.tx-live::after { animation: none; }
+}

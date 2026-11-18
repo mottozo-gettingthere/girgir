@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 55;
+const APP_VERSION = 56;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -2613,15 +2613,16 @@ function showShared(m, who) {
   if (m.t === 'mword') {
     const w = cleanWord(m.w);
     if (!w) return;
-    callKeyer.addWord(w, 'them');
-    playSent();
-    buzz(30);
-    if (ui.callKeyer.hidden) toast(who + ' keyed: ' + w, 4000);
+    /* The tones themselves announce it; the toast, for when the keyer is
+       closed, waits until the word is whole so it does not give it away. */
+    callKeyer.addWord(w, 'them', {
+      onStart: () => buzz(30),
+      onDone: () => { if (ui.callKeyer.hidden) toast(who + ' keyed: ' + w, 4000); }
+    });
   }
   else if (m.t === 'mbreak') {
-    if (callKeyer.addBreak('them')) {
-      playSent();
-      if (ui.callKeyer.hidden) toast(who + ' started a new sentence (BT)', 3000);
+    if (callKeyer.addBreak('them') && ui.callKeyer.hidden) {
+      toast(who + ' started a new sentence (BT)', 3000);
     }
   }
   else if (m.t === 'mclear') {
@@ -3115,11 +3116,6 @@ function playMorseCode(code) {
   playMorsePatterns([code]);
 }
 
-/* A whole word: three units between letters, as on the air. */
-function playMorseWord(word) {
-  playMorsePatterns(word.split('').map(c => MORSE[c]).filter(Boolean));
-}
-
 function playMorsePatterns(codes) {
   const ctx = audio();
   if (!ctx) return;
@@ -3142,6 +3138,178 @@ function playMorsePatterns(codes) {
     t += dur + unit;
   }
   });
+}
+
+/* ---- live playback: letters arrive the way they would on the air ----
+   Each letter starts as a blur when its tone starts, sharpens while the dots
+   and dashes play, and lands clear only when its last tone ends. That leaves
+   the listener the length of the letter to guess it by ear. Characters go at
+   the usual speed with an extra beat between them, so each clear letter can
+   be read before the next one starts (spaced the way learners are taught). */
+const TX_UNIT = 0.09;      // one dot, in seconds
+const TX_LETTER_GAP = 4;   // units between letters (3 on the air)
+const TX_WORD_GAP = 8;     // units between words (7 on the air)
+let txQueue = [], txCur = null, txRaf = 0;
+
+function txTone(ctx, t, dur) {
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine';
+  o.frequency.value = 620;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.12, t + 0.008);
+  g.gain.setValueAtTime(0.12, t + dur);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.02);
+  o.connect(g).connect(ctx.destination);
+  o.start(t);
+  o.stop(t + dur + 0.05);
+  return g;
+}
+
+/* Words are buttons holding one span per letter, so each can be revealed on
+   its own. Screen readers get the word whole, once. */
+function txFill(node, text) {
+  node.textContent = '';
+  for (const ch of text) {
+    const s = document.createElement('span');
+    s.className = 'tx-ch';
+    s.textContent = ch;
+    s.setAttribute('aria-hidden', 'true');
+    node.append(s);
+  }
+}
+function txItem(node, text) {
+  const spans = node.querySelectorAll('.tx-ch');
+  return { node, letters: [...text].map((ch, i) => ({ el: spans[i] || node, code: MORSE[ch] || '' })) };
+}
+
+/* A job is a run of words (and BT marks) played back to back.
+   'in' jobs are what the other phone keyed: the letters grow out of nothing.
+   're' jobs are replays: the word keeps its place and refills letter by
+   letter. A replay never holds up incoming Morse. */
+function txPlay(job) {
+  job.oscs = [];
+  if (job.kind === 're') txQueue = txQueue.filter(j => j.kind !== 're');
+  if (txCur && txCur.kind === 're') txStop(txCur);
+  txQueue.push(job);
+  if (!txCur) txNext();
+}
+
+function txNext() {
+  txCur = null;
+  const j = txQueue.shift();
+  if (j) txStart(j);
+}
+
+function txStart(job) {
+  txCur = job;
+  const ctx = audio();
+  /* A context not yet allowed to run has a frozen clock; go by the page
+     clock then, silently, rather than not at all. */
+  const live = ctx && ctx.state === 'running' ? ctx : null;
+  job.now = live ? () => live.currentTime : () => performance.now() / 1000;
+  let t = job.now() + 0.08;
+  job.letters = [];
+  job.items.forEach((it, i) => {
+    if (i) t += TX_UNIT * (TX_WORD_GAP - 1);
+    it.node.classList.remove('tx-queued');
+    if (job.kind === 'in') it.node.classList.add('tx-live');
+    it.letters.forEach((L, j) => {
+      if (j) t += TX_UNIT * (TX_LETTER_GAP - 1);
+      L.start = t;
+      L.syms = [];
+      L.done = false;
+      for (const sym of L.code) {
+        const d = sym === '-' ? TX_UNIT * 3 : TX_UNIT;
+        L.syms.push({ s: t, e: t + d, sym });
+        if (live) job.oscs.push(txTone(live, t, d));
+        t += d + TX_UNIT;
+      }
+      L.end = L.code ? t - TX_UNIT : t;
+      clearTimeout(L.el._txT);
+      delete L.el.dataset.sy;
+      L.el.classList.remove('tx-done', 'tx-on', 'tx-key');
+      L.el.classList.add(job.kind === 'in' ? 'tx-hidden' : 'tx-ghost');
+      job.letters.push(L);
+    });
+  });
+  job.end = t;
+  if (job.onStart) job.onStart();
+  /* Animation frames stop with the screen off; the timer still ends the job
+     so whatever is queued behind it is not stuck. */
+  job.timer = setTimeout(txTick, (job.end - job.now()) * 1000 + 60);
+  txTick();
+}
+
+function txTick() {
+  cancelAnimationFrame(txRaf);
+  const job = txCur;
+  if (!job) return;
+  const now = job.now();
+  for (const L of job.letters) {
+    if (L.done || now < L.start) continue;
+    if (now >= L.end) { txReveal(L, true); continue; }
+    const el = L.el;
+    if (!el.classList.contains('tx-on')) {
+      el.classList.remove('tx-hidden', 'tx-ghost');
+      el.classList.add('tx-on');
+    }
+    el.style.setProperty('--p', ((now - L.start) / (L.end - L.start)).toFixed(3));
+    const heard = L.syms.filter(x => x.s <= now);
+    el.dataset.sy = morsePretty(heard.map(x => x.sym).join(''));
+    el.classList.toggle('tx-key', heard.some(x => now < x.e));
+  }
+  if (now >= job.end) { txFinish(job); return; }
+  txRaf = requestAnimationFrame(txTick);
+}
+
+function txReveal(L, pop) {
+  L.done = true;
+  const el = L.el;
+  el.classList.remove('tx-hidden', 'tx-ghost', 'tx-on', 'tx-key');
+  el.style.removeProperty('--p');
+  if (!pop || !L.code) { delete el.dataset.sy; return; }
+  el.dataset.sy = morsePretty(L.code);
+  void el.offsetWidth;
+  el.classList.add('tx-done');
+  clearTimeout(el._txT);
+  el._txT = setTimeout(() => {
+    if (el.classList.contains('tx-on')) return;
+    el.classList.remove('tx-done');
+    delete el.dataset.sy;
+  }, 1800);
+}
+
+function txWrapUp(job, pop) {
+  clearTimeout(job.timer);
+  job.letters.forEach(L => { if (!L.done) txReveal(L, pop); });
+  job.items.forEach(it => it.node.classList.remove('tx-live', 'tx-queued'));
+}
+
+function txFinish(job) {
+  txWrapUp(job, true);
+  if (job.onDone) job.onDone();
+  txNext();
+}
+
+/* Cut short: silence what is still scheduled and show everything. */
+function txStop(job) {
+  job.oscs.forEach(g => {
+    try { g.gain.cancelScheduledValues(0); g.gain.value = 0; g.disconnect(); } catch (e) { /* gone */ }
+  });
+  if (job.letters) txWrapUp(job, false);
+  if (job.onDone && job.kind === 'in') job.onDone();
+  if (txCur === job) {
+    cancelAnimationFrame(txRaf);
+    txCur = null;
+  }
+}
+
+/* Everything one keyer has queued or playing, e.g. when its phrase clears. */
+function txCancel(owner, kind) {
+  const hit = j => j.owner === owner && (!kind || j.kind === kind);
+  txQueue.filter(hit).forEach(j => { j.oscs = j.oscs || []; j.items.forEach(it => it.node.classList.remove('tx-queued')); });
+  txQueue = txQueue.filter(j => !hit(j));
+  if (txCur && hit(txCur)) { txStop(txCur); txNext(); }
 }
 
 /* Every character, grouped the way charts print them. Tapping one plays it,
@@ -3378,6 +3546,8 @@ function makeKeyer(root, opts) {
   };
   root.classList.add('kx');
   root.innerHTML = '';
+  /* Who owns a playback, so clearing this keyer stops only its own. */
+  const me = {};
 
   const panel = el('div', 'morse kx-panel');
   const line = el('div', 'kx-line');
@@ -3440,6 +3610,7 @@ function makeKeyer(root, opts) {
     ['short pause', 'Letter lands', 'A brief stop turns the dots and dashes into a letter.'],
     ['long pause', 'Word goes', 'About 2½ s of quiet sends it, like the longer gap between words in real Morse. With Auto off, press ' + doneName + '.'],
     ['– · · · –', '¶ New sentence', 'On its own this is BT, the operator\'s break sign. Starts a new line' + (opts.onWord ? ' on both phones' : '') + '. Inside a word it is still =.'],
+    ['tap a word · ▶', 'Hear it again', 'Letters come back one at a time, each sharpening while its tone plays. Tap a letter you are keying for just that one; ▶ plays the whole sentence.'],
     ['abc 123 .,?', 'Guide only', 'Choose what the guide suggests. Every character decodes either way.']
   ].forEach(([k, what, why]) => {
     const dt = el('dt', null, k);
@@ -3488,8 +3659,21 @@ function makeKeyer(root, opts) {
     return b;
   }
 
+  /* The word being keyed, a letter per button: tap one to hear it again. */
+  function renderWord() {
+    if (wordEl.dataset.w === word) return;
+    wordEl.dataset.w = word;
+    wordEl.textContent = '';
+    [...word].forEach(ch => {
+      const b = el('button', 'kx-lt', ch);
+      b.setAttribute('aria-label', ch + ', tap to hear it');
+      b.onclick = () => txPlay({ kind: 're', owner: me, items: [{ node: b, letters: [{ el: b, code: MORSE[ch] || '' }] }] });
+      wordEl.append(b);
+    });
+  }
+
   function render() {
-    wordEl.textContent = word;
+    renderWord();
     symsEl.textContent = syms ? morsePretty(syms) : '';
     line.classList.toggle('empty', !word && !syms);
 
@@ -3543,23 +3727,69 @@ function makeKeyer(root, opts) {
     if (guideOn) cands.forEach(k => guideEl.append(chip(k)));
   }
 
+  /* Each entry keeps its own nodes, and the phrase only ever appends or trims
+     what changed: rebuilding it would restart any letter still playing. */
+  const emptyEl = el('span', 'empty', opts.emptyText);
+
+  function entryNodes(e) {
+    if (!e.nodes) {
+      if (e.br) {
+        const m = el('button', 'kx-br ' + e.who, '¶ BT');
+        m.setAttribute('aria-label', (e.who === 'them' ? 'they' : 'you') + ' started a new sentence, tap to hear BT');
+        m.onclick = () => replay([e]);
+        e.nodes = [m, el('br')];
+      } else {
+        const b = el('button', 'kx-w ' + e.who);
+        txFill(b, e.w);
+        b.setAttribute('aria-label', (e.who === 'them' ? 'their word ' : 'your word ') + e.w + ', tap to hear it');
+        b.onclick = () => replay([e]);
+        e.nodes = [b, document.createTextNode(' ')];
+      }
+      if (e.queued) e.nodes.forEach(n => n.nodeType === 1 && n.classList.add('tx-queued'));
+    }
+    return e.nodes;
+  }
+
+  /* A sentence runs from its first word up to and including its BT. */
+  function playBtn(e) {
+    if (!e.play) {
+      const b = el('button', 'kx-play');
+      b.setAttribute('aria-label', 'Play this sentence');
+      b.onclick = () => {
+        const i = phrase.indexOf(e);
+        if (i < 0) return;
+        const list = [];
+        for (let k = i; k < phrase.length; k++) {
+          list.push(phrase[k]);
+          if (phrase[k].br) break;
+        }
+        replay(list);
+      };
+      e.play = b;
+    }
+    return e.play;
+  }
+
+  function replay(list) {
+    const items = list
+      .filter(e => e.nodes && !e.nodes[0].classList.contains('tx-queued'))
+      .map(e => e.br ? { node: e.nodes[0], letters: [{ el: e.nodes[0], code: BT }] } : txItem(e.nodes[0], e.w));
+    if (items.length) txPlay({ kind: 're', owner: me, items });
+  }
+
   function renderPhrase() {
     const p = opts.phraseEl;
-    p.innerHTML = '';
-    if (!phrase.length) p.append(el('span', 'empty', opts.emptyText));
-    phrase.forEach(({ w, who, br }) => {
-      if (br) {
-        const m = el('button', 'kx-br ' + who, '¶ BT');
-        m.setAttribute('aria-label', (who === 'them' ? 'they' : 'you') + ' started a new sentence, tap to hear BT');
-        m.onclick = () => playMorseCode(BT);
-        p.append(m, el('br'));
-        return;
-      }
-      const b = el('button', 'kx-w ' + who, w);
-      b.setAttribute('aria-label', (who === 'them' ? 'their word ' : 'your word ') + w + ', tap to hear it');
-      b.onclick = () => playMorseWord(w);
-      p.append(b, ' ');
+    const want = [];
+    if (!phrase.length) want.push(emptyEl);
+    phrase.forEach((e, i) => {
+      if (!e.br && (i === 0 || phrase[i - 1].br)) want.push(playBtn(e));
+      want.push(...entryNodes(e));
     });
+    const kids = p.childNodes;
+    let i = 0;
+    while (i < want.length && kids[i] === want[i]) i++;
+    while (kids.length > i) p.lastChild.remove();
+    for (; i < want.length; i++) p.append(want[i]);
     if (opts.onPhrase) opts.onPhrase(phrase.length);
     /* The hint line depends on the phrase too (BT only after a word). */
     if (!syms) render();
@@ -3590,13 +3820,23 @@ function makeKeyer(root, opts) {
       if (who === 'you') note = phrase.length ? 'Already on a new sentence' : 'Key a word first, then BT';
       return false;
     }
-    phrase.push({ br: true, who });
+    const e = { br: true, who, queued: who === 'them' };
+    phrase.push(e);
     if (phrase.length > PHRASE_MAX) phrase.splice(0, phrase.length - PHRASE_MAX);
     renderPhrase();
+    /* Theirs plays in turn behind any word still arriving. */
+    if (e.queued && e.nodes) {
+      txPlay({
+        kind: 'in', owner: me,
+        items: [{ node: e.nodes[0], letters: [{ el: e.nodes[0], code: BT }] }],
+        onStart() { e.queued = false; e.nodes[1].classList.remove('tx-queued'); }
+      });
+    }
     return true;
   }
 
   function down() {
+    txCancel(me, 're');
     clearTimeout(gapTimer);
     stopWordGap();
     note = '';
@@ -3614,10 +3854,20 @@ function makeKeyer(root, opts) {
     gapTimer = setTimeout(commit, LETTER_GAP);
   }
 
-  function addWord(w, who) {
-    phrase.push({ w, who });
+  /* Your own words land whole: you just keyed them. Theirs arrive live. */
+  function addWord(w, who, cb = {}) {
+    const e = { w, who, queued: who === 'them' };
+    phrase.push(e);
     if (phrase.length > PHRASE_MAX) phrase.splice(0, phrase.length - PHRASE_MAX);
     renderPhrase();
+    if (!e.queued) return;
+    if (!e.nodes) { if (cb.onDone) cb.onDone(); return; }
+    txPlay({
+      kind: 'in', owner: me,
+      items: [txItem(e.nodes[0], w)],
+      onStart() { e.queued = false; if (cb.onStart) cb.onStart(); },
+      onDone: cb.onDone
+    });
   }
 
   function done() {
@@ -3633,6 +3883,7 @@ function makeKeyer(root, opts) {
   }
 
   function clearPhrase(tell) {
+    txCancel(me);
     phrase = [];
     renderPhrase();
     if (tell && opts.onClear) opts.onClear();
@@ -3686,7 +3937,7 @@ function makeKeyer(root, opts) {
     addBreak,
     clearPhrase,
     count: () => phrase.length,
-    reset() { stop(); syms = ''; word = ''; note = ''; phrase = []; render(); renderPhrase(); }
+    reset() { stop(); txCancel(me); syms = ''; word = ''; note = ''; phrase = []; render(); renderPhrase(); }
   };
 }
 
