@@ -1,0 +1,31 @@
+/* Girgir 5G: only what the cellular version adds on top of the shared look. */
+
+.brand .g5 {
+  font-weight: 600; color: var(--bg); background: var(--tx);
+  border-radius: 4px; padding: 0 4px; margin-left: 2px; font-size: 0.85em;
+}
+
+/* The Wi-Fi app is the fallback when data drops, so its prompt reads as a
+   setup step rather than a nag. */
+.install.wifi { border-left-color: var(--rx); }
+.install a.btn { text-decoration: none; text-align: center; }
+
+#dropBar a.btn { text-decoration: none; }
+
+.paste-area {
+  width: 100%; margin-top: 10px; padding: 10px;
+  background: var(--panel); color: var(--muted);
+  border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--mono); font-size: 11px; resize: vertical;
+  word-break: break-all;
+}
+#pasteBox { display: flex; flex-direction: column; gap: 10px; }
+#pasteBox .paste-area { margin-top: 0; }
+
+#qrBox .qr-wrap, #qrBox .watching, #qrBox .btn-row { margin-top: 12px; }
+
+.guide.text-only { gap: 18px; }
+
+.sheet-card .sub { margin: 18px 0 4px; }
+.sheet-card .vol + .vol { margin-top: 8px; }
+.sheet-card .btn-row { margin-top: 10px; }
