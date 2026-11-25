@@ -52,17 +52,19 @@
         <button class="icon-btn" id="btnInstallHide" aria-label="Already installed">&times;</button>
       </div>
 
-      <div class="install wifi" id="wifiBar" hidden>
-        <p class="install-text">Girgir 5G works alongside <b>Girgir</b>, the Wi-Fi version. Install it too: when mobile data drops, it keeps you talking over Wi-Fi or a hotspot, with no internet.</p>
-        <a class="btn small" id="linkGetWifi" href="../?from=5g" target="_blank" rel="noopener">Get Girgir</a>
-        <button class="btn small ghost" id="btnHaveWifi">I have it</button>
+
+      <h1 class="headline">Talk from anywhere</h1>
+      <p class="prose">Send an invite by WhatsApp, AirDrop or Bluetooth. Talk over 4G, 5G or any internet.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnCreate">Invite someone</button>
+        <button class="btn" id="btnJoin">Join</button>
       </div>
 
-      <h1 class="headline">Talk over mobile data</h1>
-      <p class="prose">For when you are far apart. One phone sends an invite by WhatsApp, AirDrop or Bluetooth, the other sends a reply back, and you are linked over 4G, 5G or any internet.</p>
-      <div class="btn-row">
-        <button class="btn primary" id="btnCreate">Create channel</button>
-        <button class="btn" id="btnJoin">Join channel</button>
+      <div class="backup" hidden>
+        <svg class="backup-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5a12 12 0 0 1 17 0"/><path d="M6.5 12.8a7.5 7.5 0 0 1 11 0"/><path d="M9.6 16a3 3 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1.2" class="solid"/></svg>
+        <span class="backup-text"><b class="backup-title">Offline mode</b><span class="backup-sub"></span></span>
+        <button class="btn small backup-btn">Install</button>
+        <button class="icon-btn backup-close" aria-label="Girgir is installed" title="It is installed" hidden>&times;</button>
       </div>
 
       <nav class="tools" aria-label="More">
@@ -74,23 +76,17 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="2.4" class="solid"/><rect x="10.5" y="10" width="10.5" height="4" rx="2" class="solid"/></svg>
           <span>Morse</span>
         </button>
-        <a class="tool" id="linkWifi" href="../?from=5g" target="_blank" rel="noopener">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5a12 12 0 0 1 17 0"/><path d="M6.5 12.8a7.5 7.5 0 0 1 11 0"/><path d="M9.6 16a3 3 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1.2" class="solid"/></svg>
-          <span>Girgir Wi-Fi</span>
-        </a>
       </nav>
 
       <details class="trouble">
         <summary>Trouble connecting?</summary>
         <dl>
-          <dt>Stuck on &ldquo;Linking up&rdquo;</dt>
-          <dd>Some mobile networks will not let two phones reach each other directly. Add a relay in <b>&#9881; Settings &rarr; Relay</b> on either phone, then send a new invite.</dd>
           <dt>Invite too old</dt>
-          <dd>An invite lasts about two minutes. If the reply took longer, tap <b>Cancel</b> and send a fresh one.</dd>
-          <dt>The reply link opened a new tab</dt>
-          <dd>Tap <b>Copy reply</b> on that page, go back to Girgir 5G and tap <b>Paste reply</b>.</dd>
-          <dt>No mobile data at all</dt>
-          <dd>If you are together, open <a href="../?from=5g" target="_blank" rel="noopener">Girgir</a> and pair over Wi-Fi or a hotspot. It needs no internet.</dd>
+          <dd>An invite works for about two minutes. Tap <b>Cancel</b> and send a fresh one.</dd>
+          <dt>The reply opened in a new tab</dt>
+          <dd>Tap <b>Copy reply</b> there, come back here and tap <b>Paste reply</b>.</dd>
+          <dt>No mobile data</dt>
+          <dd>Together? Use <b>Offline mode</b>: it talks over Wi-Fi or a hotspot with no internet.</dd>
         </dl>
       </details>
 
@@ -157,7 +153,7 @@
         </li>
         <li>
           <h2>2 &middot; Send an invite</h2>
-          <p>One phone taps <b>Create channel</b>, then <b>Send invite</b>, and picks WhatsApp, AirDrop, Bluetooth or anything else in the share sheet.</p>
+          <p>Tap <b>Invite someone</b>, then <b>Send invite</b>, and pick WhatsApp, AirDrop, Bluetooth or anything else.</p>
         </li>
         <li>
           <h2>3 &middot; Reply</h2>
@@ -169,7 +165,7 @@
         </li>
         <li>
           <h2>Signal gone?</h2>
-          <p>If the link drops and you are near each other, Girgir 5G sends you to <b>Girgir</b>, the Wi-Fi version, to carry on with no internet. Keep both installed.</p>
+          <p>Tap <b>Switch to offline mode</b>. That is Girgir, the Wi-Fi version: together on one Wi-Fi or a hotspot, it needs no internet. Install it once while you are online.</p>
         </li>
       </ol>
 
@@ -203,14 +199,14 @@
         <dt>LINK</dt><dd>Round-trip time and the share of audio packets being lost.</dd>
         <dt>BATT / THEIRS</dt><dd>Battery on each phone. The iPhone cannot report its own level to a web app, so it shows a dash there.</dd>
         <dt>INPUT</dt><dd>Which microphone is actually open — <b>EARBUD</b>, <b>WIRED</b> or <b>BUILT-IN</b> — so a headset that failed to connect is obvious rather than silent.</dd>
-        <dt>NET</dt><dd>How the voice travels. <b>direct</b>: phone to phone over the internet. <b>same Wi-Fi</b>: both on one network. <b>relay</b>: through the relay server in settings, still encrypted.</dd>
+        <dt>NET</dt><dd>How the voice travels. <b>direct</b>: phone to phone over the internet. <b>same Wi-Fi</b>: both on one network. <b>relay</b>: through a relay, for networks that block direct links. Still encrypted end to end.</dd>
         <dt>OUT</dt><dd>Where their voice comes out. A picker appears where the phone allows one; otherwise it names what the system does — earpiece on iPhone, loudspeaker on Android.</dd>
         <dt>Meters</dt><dd>Live audio level — yours in amber, theirs in teal. Set a name in settings and the labels use it instead of YOU and THEM.</dd>
       </dl>
       </details>
 
       <h2 class="sub">Storage on this phone</h2>
-      <p class="prose">No logs, no history, no recordings. It remembers your name (shared with Girgir), that it is installed, and a relay if you add one. Invites travel only through the apps you send them with; no Girgir server sees them.</p>
+      <p class="prose">No logs, no history, no recordings. It remembers your name (shared with Girgir) and that it is installed. Invites travel only through the apps you send them with; no Girgir server sees them.</p>
       <div class="storage">
         <span>Version <b id="verNow">—</b><span id="verLatest"></span></span>
         <span>Using <b id="storeUsed">—</b></span>
@@ -236,21 +232,18 @@
       <p class="note" id="codeAge"></p>
 
       <details class="fallback" id="qrBox">
-        <summary>Together? Show a QR code instead</summary>
+        <summary>Other ways to send it</summary>
+        <div class="btn-row">
+          <button class="btn small" id="btnCopy">Copy link</button>
+          <button class="btn small" id="btnNext">Scan their QR</button>
+        </div>
+        <p class="note">Together? Let them scan this.</p>
         <div class="qr-wrap"><canvas id="qrCanvas"></canvas></div>
         <div class="watching" id="watching" hidden>
           <div class="watch-cam"><video id="codeCam" playsinline muted></video></div>
-          <div class="watch-body">
-            <p class="watch-text">Camera is on. When their code appears, turn this phone towards it.</p>
-            <button class="link cam-switch-link" id="btnCamSwitch2" hidden>Blurry? Switch camera</button>
-          </div>
+          <div class="watch-body"><button class="link cam-switch-link" id="btnCamSwitch2" hidden>Blurry? Switch camera</button></div>
         </div>
-        <div class="btn-row"><button class="btn" id="btnNext">Scan their code</button></div>
-      </details>
-      <details class="fallback">
-        <summary>Share sheet not working? Use text</summary>
-        <textarea id="codeText" readonly rows="3" spellcheck="false"></textarea>
-        <button class="btn small" id="btnCopy">Copy link</button>
+        <textarea id="codeText" readonly rows="2" spellcheck="false" hidden></textarea>
       </details>
       <button class="link" id="btnCancel1">Cancel</button>
     </div>
@@ -270,6 +263,11 @@
           <button class="btn" id="btnPaste">Use this</button>
           <button class="btn ghost" id="btnScanQR">Scan a QR</button>
         </div>
+      </div>
+      <div class="backup" hidden>
+        <svg class="backup-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5a12 12 0 0 1 17 0"/><path d="M6.5 12.8a7.5 7.5 0 0 1 11 0"/><path d="M9.6 16a3 3 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1.2" class="solid"/></svg>
+        <span class="backup-text"><b class="backup-title">Offline mode</b><span class="backup-sub"></span></span>
+        <button class="btn small backup-btn">Install</button>
       </div>
       <div class="cam-wrap" hidden>
         <video id="cam" playsinline muted></video>
@@ -323,7 +321,7 @@
 
     <div class="install" id="dropBar" hidden>
       <p class="install-text" id="dropText"></p>
-      <a class="btn small primary" id="linkDropWifi" href="../?from=5g" target="_blank" rel="noopener">Open Girgir Wi-Fi</a>
+      <a class="btn small primary" id="linkDropWifi" href="../?from=5g" target="_blank" rel="noopener">Switch to offline mode</a>
       <button class="btn small" id="btnDropPair">Send new invite</button>
     </div>
 
@@ -441,16 +439,6 @@
       </button>
     </div>
 
-    <h2 class="sub">Relay</h2>
-    <p class="note">Optional. Some mobile networks block phone-to-phone links; a TURN relay carries the voice for them, still encrypted. Free relays need a free account (for example Metered Open Relay or Cloudflare). Kept on this phone only.</p>
-    <div class="vol"><span class="k">URL</span><input type="text" id="turnUrl" placeholder="turn:host:3478" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
-    <div class="vol"><span class="k">USER</span><input type="text" id="turnUser" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
-    <div class="vol"><span class="k">PASS</span><input type="text" id="turnPass" autocomplete="off" spellcheck="false" autocapitalize="off"></div>
-    <div class="btn-row">
-      <button class="btn small" id="btnTurnSave">Save relay</button>
-      <button class="btn small ghost" id="btnTurnClear">Remove</button>
-    </div>
-    <p class="note" id="turnNote"></p>
   </div>
 </div>
 

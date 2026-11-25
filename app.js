@@ -1236,6 +1236,26 @@ function setSessionState(playing) {
    the request open for years - so the best available there is pointing
    straight at the share sheet instead of letting people hunt for it. */
 let installEvent = null;
+let installFor5g = false;
+
+/* Girgir 5G's "Install offline mode": say what this is and what to do, even
+   before (or without) the browser offering its own install button. */
+function showInstallFor5g() {
+  ui.btnInstall.hidden = !installEvent;
+  if (isStandalone() || alreadyInstalled()) {
+    ui.installText.innerHTML = '<b>Offline mode is installed.</b> Go back to Girgir 5G.';
+    ui.btnInstall.hidden = true;
+  } else if (looksLikeIOS()) {
+    ui.installText.innerHTML = '<b>Install offline mode:</b> tap <b>Share</b>, then ' +
+      '<b>Add to Home Screen</b>. Then go back to Girgir 5G.';
+  } else if (installEvent) {
+    ui.installText.innerHTML = '<b>Install offline mode</b>, then go back to Girgir 5G.';
+  } else {
+    ui.installText.innerHTML = '<b>Install offline mode:</b> browser menu &rarr; ' +
+      '<b>Install app</b> or <b>Add to Home screen</b>. Then go back to Girgir 5G.';
+  }
+  ui.installBar.hidden = false;
+}
 
 function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches ||
@@ -4217,6 +4237,7 @@ ui.togAwake.onclick = () => {
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   installEvent = e;
+  if (installFor5g) { showInstallFor5g(); return; }
   if (isStandalone() || alreadyInstalled()) return;
   ui.installText.textContent = 'Install it so it runs with no internet.';
   ui.btnInstall.hidden = false;
@@ -4226,6 +4247,7 @@ window.addEventListener('beforeinstallprompt', e => {
 window.addEventListener('appinstalled', () => {
   installEvent = null;
   markInstalled();
+  if (installFor5g) showInstallFor5g();
 });
 
 ui.btnInstall.onclick = async () => {
@@ -4236,6 +4258,7 @@ ui.btnInstall.onclick = async () => {
   installEvent = null;
   ui.btnInstall.hidden = true;
   if (outcome === 'accepted') markInstalled();
+  if (installFor5g) showInstallFor5g();
 };
 
 ui.btnInstallHide.onclick = markInstalled;
@@ -4301,13 +4324,18 @@ updateTalk();
 setPill('idle', 'IDLE');
 initBattery();
 
-/* Sent here by Girgir 5G, usually because mobile data dropped. */
+/* Sent here by Girgir 5G: to switch because mobile data dropped
+   (?from=5g), or to install this app as its offline mode (?install=5g). */
 try {
   const q = new URLSearchParams(location.search);
   if (q.get('from') === '5g') {
     history.replaceState(null, '', location.pathname);
-    toast('From Girgir 5G. Pair again here: Create on one phone, Join on the other. ' +
-      'Both on the same Wi-Fi or hotspot.', 9000);
+    toast('Offline mode. Pair again here: Create on one phone, Join on the other, ' +
+      'both on the same Wi-Fi or hotspot.', 9000);
+  } else if (q.get('install') === '5g') {
+    history.replaceState(null, '', location.pathname);
+    installFor5g = true;
+    showInstallFor5g();
   }
 } catch (e) { /* ignore */ }
 

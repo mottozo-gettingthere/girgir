@@ -39,10 +39,14 @@ const OWN_PREFIX = 'girgir5g-';
 const INSTALLED_KEY = 'girgir5g-installed';
 const NAME_KEY = 'girgir-name';
 const LAST_KEY = 'girgir5g-last';
-const TURN_KEY = 'girgir5g-turn';
 const WIFI_OK_KEY = 'girgir5g-wifi-ok';
 const WIFI_INSTALLED_KEY = 'girgir-installed';
-const KEEP_KEYS = [INSTALLED_KEY, LAST_KEY, TURN_KEY, WIFI_OK_KEY];
+const KEEP_KEYS = [INSTALLED_KEY, LAST_KEY, WIFI_OK_KEY];
+
+/* The relay: a small Cloudflare Worker (turn-worker/ in this repository)
+   that hands out TURN credentials good for a few hours. Empty means no relay,
+   only direct links. The credentials live in the Worker, never in this file. */
+const RELAY_ENDPOINT = '';
 const CACHE_PREFIX = 'girgir5g-';
 
 const ui = {
@@ -55,12 +59,10 @@ const ui = {
   btnShare: $('btnShare'), btnPasteReply: $('btnPasteReply'), replyRow: $('replyRow'),
   codeAge: $('codeAge'), qrBox: $('qrBox'), pasteBox: $('pasteBox'),
   btnPasteClip: $('btnPasteClip'), btnScanQR: $('btnScanQR'),
-  wifiBar: $('wifiBar'), btnHaveWifi: $('btnHaveWifi'), linkGetWifi: $('linkGetWifi'),
-  linkDropWifi: $('linkDropWifi'), linkWifi: $('linkWifi'),
+  linkDropWifi: $('linkDropWifi'),
   landStep: $('landStep'), landHead: $('landHead'), landText: $('landText'),
   btnLandCopy: $('btnLandCopy'), btnLandHome: $('btnLandHome'),
-  turnUrl: $('turnUrl'), turnUser: $('turnUser'), turnPass: $('turnPass'),
-  btnTurnSave: $('btnTurnSave'), btnTurnClear: $('btnTurnClear'), turnNote: $('turnNote'),
+
   btnDrill: $('btnDrill'), drillPrompt: $('drillPrompt'), drillSub: $('drillSub'),
   drillPanel: $('drillPanel'), drillSyms: $('drillSyms'), drillCands: $('drillCands'),
   drillChoices: $('drillChoices'), drillKey: $('drillKey'), drillFeedback: $('drillFeedback'),
@@ -272,26 +274,51 @@ function localOnly(sdp) {
    from outside, and puts that in its code. Nothing else goes to them. */
 const STUN_URLS = ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'];
 
-function loadTurn() {
-  try {
-    const t = JSON.parse(localStorage.getItem(TURN_KEY) || 'null');
-    if (t && typeof t.url === 'string' && t.url) return t;
-  } catch (e) { /* storage blocked or bad */ }
-  return null;
+/* Some mobile networks will not let two phones reach each other at all.
+   For those the voice goes through a TURN relay, still encrypted end to end;
+   the relay only forwards it. Credentials are fetched fresh before each
+   pairing and kept in memory only. If the relay cannot be reached the phones
+   simply try without it. */
+const RELAY_REUSE_MS = 4 * 3600 * 1000;
+let relayServers = [], relayUntil = 0, relayLoad = null;
+
+function cleanIceServers(data) {
+  let list = data && data.iceServers;
+  if (list && !Array.isArray(list)) list = [list];
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  list.forEach(s => {
+    if (!s) return;
+    const urls = (Array.isArray(s.urls) ? s.urls : [s.urls]).filter(u =>
+      typeof u === 'string' && /^turns?:/i.test(u) &&
+      /* Browsers refuse port 53, and trying it only slows gathering. */
+      !/:53(\?|$)/.test(u));
+    if (!urls.length || typeof s.username !== 'string' || typeof s.credential !== 'string') return;
+    out.push({ urls, username: s.username, credential: s.credential });
+  });
+  return out;
 }
 
-function turnUrls(text) {
-  return String(text || '').split(/[\s,]+/).filter(Boolean);
+function refreshRelay() {
+  if (!RELAY_ENDPOINT || navigator.onLine === false) return Promise.resolve();
+  if (relayServers.length && Date.now() < relayUntil) return Promise.resolve();
+  if (relayLoad) return relayLoad;
+  relayLoad = (async () => {
+    const stop = new AbortController();
+    const t = setTimeout(() => stop.abort(), 3000);
+    try {
+      const res = await fetch(RELAY_ENDPOINT, { method: 'POST', cache: 'no-store', signal: stop.signal });
+      if (!res.ok) return;
+      const servers = cleanIceServers(await res.json());
+      if (servers.length) { relayServers = servers; relayUntil = Date.now() + RELAY_REUSE_MS; }
+    } catch (e) { /* no relay this time: direct routes only */ }
+    finally { clearTimeout(t); relayLoad = null; }
+  })();
+  return relayLoad;
 }
 
 function iceConfig() {
-  const servers = [{ urls: STUN_URLS }];
-  const t = loadTurn();
-  if (t) {
-    const urls = turnUrls(t.url).filter(u => /^turns?:/i.test(u));
-    if (urls.length) servers.push({ urls, username: t.user || '', credential: t.pass || '' });
-  }
-  return { iceServers: servers, iceCandidatePoolSize: 0 };
+  return { iceServers: [{ urls: STUN_URLS }].concat(relayServers), iceCandidatePoolSize: 0 };
 }
 
 /* Gathering now waits on servers across the internet, not just this phone. */
@@ -1430,6 +1457,9 @@ async function attemptRecovery(force) {
     /* Safari reveals this phone's address only while it is capturing. */
     await acquireMic().catch(() => {});
     if (!live) scheduleMicRelease();
+    /* A restart may outlive the relay credentials it started with. */
+    await refreshRelay();
+    try { pc.setConfiguration(iceConfig()); } catch (e) { /* keep the old set */ }
     await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
     await gatheringDone();
     sendCtl({ t: 'reoffer', sdp: localOnly(pc.localDescription.sdp) });
@@ -1667,8 +1697,9 @@ async function host(step, hint) {
     toast('Microphone blocked. Allow it in site settings.', 5000);
     return;
   }
+  await refreshRelay();
   teardownPeer();
-  setPill('pairing', step === 'STANDBY' ? 'STANDBY' : 'PAIRING');
+  setPill('pairing', 'PAIRING');
   amOfferer = true;
   newPeer();
   wireChannel(pc.createDataChannel('ctl', { ordered: true }));
@@ -1687,9 +1718,8 @@ async function host(step, hint) {
 }
 
 function createChannel() {
-  if (!wifiGate()) return Promise.resolve();
-  return host('STEP 1 OF 2',
-    'Send this invite to the other phone \u2014 WhatsApp, AirDrop, Bluetooth, anything. Then open their reply, or paste it here.');
+  return host('INVITE',
+    'Send this to them by WhatsApp, AirDrop, Bluetooth or anything else. When their reply comes back, open it.');
 }
 
 /* A page that has been closed takes its code with it: the ICE credentials and
@@ -1718,17 +1748,15 @@ async function takeStandby(code) {
   return takeOffer(code);
 }
 
-async function joinChannel(prefill) {
-  if (!wifiGate()) return;
+async function joinChannel(prefill, from) {
   openScanner('JOIN', prefill
-    ? 'You opened an invite. Tap Join to connect.'
+    ? (from ? from + ' invites you to talk.' : 'You are invited to talk.')
     : 'Open the invite link they sent you, or paste it here.', joinWith, prefill || '');
 }
 
 /* The join itself waits for a tap, so the microphone and audio start on a
    gesture - which iOS needs - even when the invite arrived as a link. */
 async function joinWith(code) {
-  if (!wifiGate()) { show('setup'); return; }
   try {
     await ensureMic();
   } catch (e) {
@@ -1742,6 +1770,7 @@ async function takeOffer(code) {
   amOfferer = false;
   const { role, sdp } = await unpackDesc(code);
   if (role !== 'O') throw new Error('That is a reply, not an invite. Open the invite from "Create channel".');
+  await refreshRelay();
   newPeer();
   pc.ondatachannel = ev => wireChannel(ev.channel);
   await pc.setRemoteDescription({ type: 'offer', sdp });
@@ -1750,7 +1779,7 @@ async function takeOffer(code) {
   await pc.setLocalDescription(await pc.createAnswer());
   await gatheringDone();
   const answer = await packDesc('A', pc.localDescription.sdp);
-  showCode(answer, 'STEP 2 OF 2', 'Send this reply back to them the same way. You link up as soon as they open it.',
+  showCode(answer, 'REPLY', 'Send this back to them the same way. You link up as soon as they open it.',
     'Waiting for them…', null);
   scheduleMicRelease();
 }
@@ -1794,10 +1823,9 @@ function showCode(code, step, hint, nextLabel, onNext, watchHandler, watchFilter
   ui.qrBox.open = false;
   ui.watching.hidden = true;
   ui.qrBox.ontoggle = () => {
-    if (!ui.qrBox.open) { stopScanner(); return; }
+    if (!ui.qrBox.open) return;
     try { drawQR(code, ui.qrCanvas); }
-    catch (e) { toast('Code too long for a QR \u2014 send it instead', 5000); }
-    if (invite) watchForAnswer(watchHandler, watchFilter);
+    catch (e) { /* too long for a QR: the link still works */ }
   };
   show('code');
   tickAge();
@@ -2093,6 +2121,12 @@ async function openScanner(step, hint, handler, prefill, camera) {
   ui.btnPaste.textContent = prefill ? 'Join' : 'Use this';
   ui.btnPaste.classList.toggle('primary', !!prefill);
   ui.btnPasteClip.hidden = !!prefill;
+  ui.pasteText.hidden = ui.btnScanQR.hidden = !!prefill;
+  ui.scanHint.classList.toggle('headline', !!prefill);
+  ui.scanHint.classList.toggle('prose', !prefill);
+  ui.btnPaste.hidden = false;
+  joiningByLink = !!prefill;
+  renderBackup();
   ui.btnPasteClip.onclick = () => pasteInto(handler, false);
   ui.btnPaste.onclick = () => {
     const code = extractCode(ui.pasteText.value);
@@ -2879,6 +2913,7 @@ async function addPerson() {
     toast('Microphone blocked. Allow it in site settings.', 5000);
     return;
   }
+  await refreshRelay();
   const x = makeExtra(true);
   extras.push(x);
   adding = x;
@@ -2935,6 +2970,7 @@ async function takeAddCode(code) {
     }
     /* Their offer: answer it instead of our own. */
     closeExtra(x);
+    await refreshRelay();
     x = makeExtra(false);
     extras.push(x);
     adding = x;
@@ -4096,7 +4132,6 @@ async function clearData() {
     }
     drop.forEach(k => localStorage.removeItem(k));
   } catch (e) {}
-  loadTurnFields();
   toast('Cleared Girgir 5G. Girgir (Wi-Fi) is left as it was.', 6000);
   renderStorage();
 }
@@ -4233,9 +4268,8 @@ ui.togHalf.onclick = () => {
   'btnDrillLive', 'drillTogs', 'freeKeyer', 'freePhrase', 'btnMorse', 'callKeyer',
   'callPhrase', 'togRange', 'groupRow', 'btnAdd', 'meters',
   'btnShare', 'btnPasteReply', 'replyRow', 'codeAge', 'qrBox', 'pasteBox', 'btnPasteClip',
-  'btnScanQR', 'wifiBar', 'btnHaveWifi', 'linkGetWifi', 'linkDropWifi', 'linkWifi',
-  'landStep', 'landHead', 'landText', 'btnLandCopy', 'btnLandHome',
-  'turnUrl', 'turnUser', 'turnPass', 'btnTurnSave', 'btnTurnClear', 'turnNote'].forEach(k => {
+  'btnScanQR', 'linkDropWifi',
+  'landStep', 'landHead', 'landText', 'btnLandCopy', 'btnLandHome'].forEach(k => {
   if (!ui[k]) ui[k] = document.createElement('span');
 });
 
@@ -4390,7 +4424,17 @@ if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
    included - sees it; only the chat app it was sent through does. */
 const APP_URL = new URL('./', location.href).href;
 
-function linkFor(code) { return APP_URL + '#' + code; }
+/* The sender's name rides along after a ~, so the invite can say who it is
+   from. It is shown as plain text only, after the same cleaning as a name
+   arriving over the data channel. */
+function linkFor(code) {
+  return APP_URL + '#' + code + (myName ? '~' + encodeURIComponent(myName) : '');
+}
+function nameInLink(hash) {
+  const m = /~([^&#\s]+)/.exec(String(hash || ''));
+  if (!m) return '';
+  try { return cleanName(decodeURIComponent(m[1])); } catch (e) { return ''; }
+}
 
 /* Pulls a code out of whatever was pasted: the bare code, the link, or the
    whole chat message around it. */
@@ -4469,7 +4513,7 @@ function tickAge() {
    this already-open app. A reply goes to whichever screen is waiting for one;
    an invite starts a join if nothing else is going on. */
 const handled = new Set();
-function takeIncoming(code) {
+function takeIncoming(code, from) {
   if (!code || handled.has(code)) return true;
   if (code === shownCode) return false;
   if (!ui.views.code.hidden && pendingHandler) {
@@ -4484,7 +4528,7 @@ function takeIncoming(code) {
   if (code.charAt(2) === 'O' && !channelUp && !pc && (ui.views.setup.hidden === false ||
       !ui.views.drill.hidden || !ui.views.help.hidden || !ui.views.landing.hidden)) {
     handled.add(code);
-    joinChannel(code);
+    joinChannel(code, from);
     return true;
   }
   return false;
@@ -4550,11 +4594,11 @@ function takeFromUrl(href) {
   if (href === location.href) {
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
   }
-  if (takeIncoming(code)) return;
+  if (takeIncoming(code, nameInLink(hash))) return;
   handled.add(code);
   if (code.charAt(2) === 'A') landReply(code);
   else if (channelUp || pc) toast('An invite arrived, but you are already in a channel. End first to join it.', 6000);
-  else joinChannel(code);
+  else joinChannel(code, nameInLink(hash));
 }
 
 ui.btnLandHome.onclick = () => { show('setup'); setPill('idle', 'IDLE'); };
@@ -4562,42 +4606,78 @@ ui.btnLandHome.onclick = () => { show('setup'); setPill('idle', 'IDLE'); };
 /* ---------------- Girgir, the Wi-Fi version ---------------- */
 
 /* Girgir 5G leans on Girgir for the moments mobile data is gone: both phones
-   together, on a hotspot, no internet. So it wants Girgir on the phone
-   before a channel starts. A page can only partly tell: Girgir records that
-   it is installed in the storage the two share (on Android and in a browser
-   tab), and Chrome can list related installed apps. An iPhone home-screen
-   app keeps its own storage, so there the person is asked once. */
-let wifiKnown = false;
+   together, on Wi-Fi or a hotspot, no internet. One card says where that
+   stands, and only asks for something when there is something to do:
+   - no internet now: open offline mode;
+   - not installed: install it, while there is still internet;
+   - installed: a quiet line, or nothing at all on an invite.
+   Installed is what Girgir records in the storage the two apps share, or
+   what Chrome lists as a related installed app. An iPhone home-screen app
+   keeps its own storage and cannot see it, so the card there can be closed
+   by hand. Separately, Girgir's service worker is loaded here, so Girgir is
+   saved in this browser and opens offline even before it is installed. */
+let wifiInstalled = false, wifiSaved = false, joiningByLink = false;
+const WIFI_URL = '../?from=5g';
+const WIFI_INSTALL_URL = '../?install=5g';
 
-function wifiMarked() {
-  try {
-    return localStorage.getItem(WIFI_INSTALLED_KEY) === '1' || localStorage.getItem(WIFI_OK_KEY) === '1';
-  } catch (e) { return false; }
+function flag(key) {
+  try { return localStorage.getItem(key) === '1'; } catch (e) { return false; }
 }
 
 async function checkWifiApp() {
-  wifiKnown = wifiMarked();
-  if (!wifiKnown && navigator.getInstalledRelatedApps) {
-    try { wifiKnown = (await navigator.getInstalledRelatedApps()).length > 0; } catch (e) {}
+  wifiInstalled = flag(WIFI_INSTALLED_KEY) || flag(WIFI_OK_KEY);
+  if (!wifiInstalled && navigator.getInstalledRelatedApps) {
+    try { wifiInstalled = (await navigator.getInstalledRelatedApps()).length > 0; } catch (e) {}
   }
-  ui.wifiBar.hidden = wifiKnown;
-  return wifiKnown;
+  try {
+    const scope = new URL('../', location.href).href;
+    const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(scope);
+    wifiSaved = !!(reg && reg.scope === scope && (reg.active || reg.waiting || reg.installing));
+  } catch (e) { wifiSaved = false; }
+  renderBackup();
+}
+
+function renderBackup() {
+  const online = navigator.onLine !== false;
+  document.querySelectorAll('.backup').forEach(el => {
+    const onInvite = !!el.closest('#viewScan');
+    const title = el.querySelector('.backup-title');
+    const sub = el.querySelector('.backup-sub');
+    const btn = el.querySelector('.backup-btn');
+    const close = el.querySelector('.backup-close');
+    let state;
+    if (!online) state = 'offline';
+    else if (!wifiInstalled) state = 'install';
+    else state = 'ready';
+    el.hidden = onInvite ? (!joiningByLink || state === 'ready') : false;
+    el.dataset.state = state;
+    if (state === 'offline') {
+      title.textContent = 'No internet';
+      sub.textContent = 'Together? Offline mode talks over Wi-Fi or a hotspot.';
+      btn.textContent = 'Open';
+      btn.onclick = () => window.open(WIFI_URL, '_blank', 'noopener');
+    } else if (state === 'install') {
+      title.textContent = 'Offline mode';
+      sub.textContent = 'Keeps you talking when mobile data drops. Install it now, while online.';
+      btn.textContent = 'Install';
+      btn.onclick = () => {
+        window.open(WIFI_INSTALL_URL, '_blank', 'noopener');
+        el.dataset.asked = '1';
+        renderBackup();
+      };
+    } else {
+      title.textContent = 'Offline mode ready';
+      sub.textContent = 'For when mobile data drops.';
+    }
+    btn.hidden = state === 'ready';
+    /* The one case nothing can detect, so a person can say so. */
+    if (close) close.hidden = !(state === 'install' && !onInvite);
+  });
 }
 
 function markWifiOk() {
-  wifiKnown = true;
   try { localStorage.setItem(WIFI_OK_KEY, '1'); } catch (e) {}
-  ui.wifiBar.hidden = true;
-}
-
-function wifiGate() {
-  if (wifiKnown || wifiMarked()) return true;
-  const yes = window.confirm('Girgir 5G works together with Girgir, the Wi-Fi version: when mobile data ' +
-    'drops, Girgir keeps you talking over Wi-Fi or a hotspot with no internet.\n\n' +
-    'Is Girgir installed on this phone?\n\nOK: yes, carry on.  Cancel: get it first.');
-  if (yes) { markWifiOk(); return true; }
-  window.open('../?from=5g', '_blank', 'noopener');
-  return false;
+  checkWifiApp();
 }
 
 /* Loading Girgir's own service worker caches the Wi-Fi app in this browser
@@ -4608,16 +4688,15 @@ function warmWifiApp() {
   navigator.serviceWorker.getRegistration(scope).then(reg => {
     if (reg && reg.scope === scope) return;
     return navigator.serviceWorker.register('../sw.js', { scope: '../' });
-  }).catch(() => {});
+  }).then(() => checkWifiApp()).catch(() => {});
 }
 
 const REFER_AFTER_MS = 10000;
 let referTimer = 0;
-const DROP_HELP = 'Together? Carry on in Girgir over Wi-Fi or a hotspot, no internet needed. ' +
-  'Apart? Send a new invite.';
+const DROP_HELP = 'Together? Switch to offline mode, no internet needed. Apart? Send a new invite.';
 const DROP_TEXT = () => (navigator.onLine === false
-  ? 'This phone has no internet. '
-  : 'The link over mobile data is lost. ') + DROP_HELP;
+  ? 'No internet on this phone. '
+  : 'Mobile data link lost. ') + DROP_HELP;
 
 function referToWifi(text) {
   if (ui.views.live.hidden && ui.views.code.hidden) return;
@@ -4632,46 +4711,19 @@ function goWifi() {
   if (channelUp || pc) hangUp();
 }
 ui.linkDropWifi.addEventListener('click', goWifi);
-ui.btnHaveWifi.onclick = markWifiOk;
-ui.linkGetWifi.addEventListener('click', () => setTimeout(checkWifiApp, 4000));
+document.querySelectorAll('.backup-close').forEach(b => { b.onclick = markWifiOk; });
+/* Coming back from installing Girgir in another tab. */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkWifiApp(); });
 
 window.addEventListener('offline', () => {
+  renderBackup();
   if (channelUp) referToWifi(DROP_TEXT());
 });
 window.addEventListener('online', () => {
+  renderBackup();
+  refreshRelay();
   if (pc && pc.connectionState === 'connected') ui.dropBar.hidden = true;
 });
-
-/* ---------------- relay settings ---------------- */
-
-function loadTurnFields() {
-  const t = loadTurn();
-  ui.turnUrl.value = t ? t.url : '';
-  ui.turnUser.value = t ? (t.user || '') : '';
-  ui.turnPass.value = t ? (t.pass || '') : '';
-  ui.turnNote.textContent = t ? 'Relay saved. Used from the next invite.' : 'No relay. Direct links only.';
-}
-
-ui.btnTurnSave.onclick = () => {
-  const url = ui.turnUrl.value.trim();
-  const urls = turnUrls(url);
-  if (!urls.length || !urls.every(u => /^turns?:[^\s]+$/i.test(u))) {
-    toast('A relay address starts with turn: or turns:', 4000);
-    return;
-  }
-  try {
-    localStorage.setItem(TURN_KEY, JSON.stringify({
-      url, user: ui.turnUser.value.trim(), pass: ui.turnPass.value
-    }));
-  } catch (e) { toast('Could not save on this phone', 4000); return; }
-  loadTurnFields();
-  toast('Relay saved', 2000);
-};
-ui.btnTurnClear.onclick = () => {
-  try { localStorage.removeItem(TURN_KEY); } catch (e) {}
-  loadTurnFields();
-  toast('Relay removed', 2000);
-};
 
 async function dropOwnCaches() {
   try {
@@ -4705,8 +4757,8 @@ ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
 ui.togRange.setAttribute('aria-pressed', String(longRange));
-loadTurnFields();
 checkWifiApp();
+refreshRelay();
 updateTalk();
 setPill('idle', 'IDLE');
 initBattery();

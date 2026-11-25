@@ -7,7 +7,6 @@
 
 /* The Wi-Fi app is the fallback when data drops, so its prompt reads as a
    setup step rather than a nag. */
-.install.wifi { border-left-color: var(--rx); }
 .install a.btn { text-decoration: none; text-align: center; }
 
 #dropBar a.btn { text-decoration: none; }
@@ -29,3 +28,30 @@
 .sheet-card .sub { margin: 18px 0 4px; }
 .sheet-card .vol + .vol { margin-top: 8px; }
 .sheet-card .btn-row { margin-top: 10px; }
+
+/* One card for offline mode (Girgir, the Wi-Fi app): install it, open it, or
+   just a quiet line saying it is ready. */
+.backup {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 12px 14px;
+}
+.backup-icon {
+  flex: none; width: 22px; height: 22px; fill: none; stroke: var(--rx);
+  stroke-width: 1.8; stroke-linecap: round;
+}
+.backup-icon .solid { fill: var(--rx); stroke: none; }
+.backup-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.backup-title { font-size: 13px; font-weight: 600; }
+.backup-sub { font-family: var(--sans); font-size: 12.5px; line-height: 1.4; color: var(--muted); }
+.backup .icon-btn { flex: none; width: 28px; height: 28px; font-size: 14px; }
+.backup[data-state="ready"] { background: transparent; border-style: dashed; padding: 8px 12px; }
+.backup[data-state="ready"] .backup-sub { display: none; }
+.backup[data-state="ready"] .backup-title::after { content: ' \2713'; color: var(--rx); }
+.backup[data-state="offline"] { border-color: var(--tx); }
+.backup[data-state="offline"] .backup-icon { stroke: var(--tx); }
+.backup[data-state="offline"] .backup-icon .solid { fill: var(--tx); }
+
+.tools { grid-template-columns: repeat(2, 1fr); }
+#qrBox .btn-row { margin-top: 12px; }
+#qrBox .note { margin-top: 12px; }

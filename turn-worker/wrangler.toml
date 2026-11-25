@@ -1,0 +1,15 @@
+# Girgir 5G relay credentials. Deploy with:  npx wrangler deploy
+# Then set the two secrets:  npx wrangler secret put TURN_KEY_ID
+#                            npx wrangler secret put TURN_KEY_API_TOKEN
+name = "girgir-turn"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+# To serve it from a test subdomain of your own domain instead of
+# *.workers.dev, uncomment and fill in (the domain must be on this account):
+# routes = [{ pattern = "girgir-test.example.com", custom_domain = true }]
+
+[vars]
+# Extra page origins allowed besides GitHub Pages, comma-separated.
+EXTRA_ORIGINS = ""
