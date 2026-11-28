@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 57;
+const APP_VERSION = 58;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -80,7 +80,7 @@ const ui = {
   resumeBar: $('resumeBar'), resumeText: $('resumeText'),
   btnResume: $('btnResume'), btnResumeHide: $('btnResumeHide'),
   labelYou: $('labelYou'), labelThem: $('labelThem'),
-  micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'),
+  micLvl: $('micLvl'), micVal: $('micVal'), togAwake: $('togAwake'), togBg: $('togBg'),
   flash: $('flash'), toast: $('toast'), remoteAudio: $('remoteAudio')
 };
 
@@ -572,6 +572,7 @@ function releaseMic() {
 
 function scheduleMicRelease(ms = MIC_IDLE_MS) {
   clearTimeout(micReleaseTimer);
+  if (stayLinked && channelUp) return;
   micReleaseTimer = setTimeout(() => { if (!live) releaseMic(); }, ms);
 }
 
@@ -953,6 +954,11 @@ function updateStatus() {
         s.append(b, ' TALKING');
       } else s.textContent = 'THEY’RE TALKING';
       s.classList.add('rx');
+    } else if (peerAway) {
+      s.textContent = '';
+      const b = document.createElement('bdi');
+      b.textContent = clipText((peerName || 'THEY').toUpperCase(), 22);
+      s.append(b, peerName ? ' IS IN ANOTHER APP' : '\u2019RE IN ANOTHER APP');
     } else s.textContent = 'QUIET';
   }
 }
@@ -1042,6 +1048,7 @@ function wireChannel(channel) {
     else if (m.t === 'mword' || m.t === 'mbreak' || m.t === 'mclear') {
       showShared(m, cleanList(m.from) || peerName || 'They');
     }
+    else if (m.t === 'away' || m.t === 'back') { peerAway = m.t === 'away'; updateStatus(); }
     else if (m.t === 'hb') { sendCtl({ t: 'hbr', ts: m.ts }); }
     else if (m.t === 'hbr') { rtt = Math.round(performance.now() - m.ts); }
     else if (m.t === 'stat' && m.batt) {
@@ -1059,11 +1066,32 @@ function wireChannel(channel) {
    means the other app is gone, not merely quiet. */
 const PEER_GONE_MS = 12000;
 
+/* A phone in another app can be throttled or paused by its system, so its
+   heartbeat stops while its connection is still perfectly alive: the
+   browser keeps answering the network's own liveness checks, and the link
+   would stay "connected". So silence alone no longer means gone. While the
+   connection still reads connected, a quiet phone is given up to two
+   minutes; one whose connection has actually dropped is gone after the
+   usual twelve seconds. A phone that says it is going into another app
+   ("away") is shown as such meanwhile. */
+const AWAY_GRACE_MS = 120000;
+let peerAway = false;
+function stillThere(p, heard) {
+  return !!(p && p.connectionState === 'connected' && Date.now() - heard < AWAY_GRACE_MS);
+}
+
+/* Stay linked in the background: hold the microphone for the whole channel
+   (nothing is sent unless you talk). On Android a page that is capturing is
+   treated like a call and kept running; one that is not can be put to sleep
+   as soon as you switch apps, which is what dropped links. Off brings back
+   0.49's behaviour of freeing the microphone for other apps. */
+let stayLinked = true;
+
 function startHeartbeat() {
   stopHeartbeat();
   lastHeard = Date.now();
   hbTimer = setInterval(() => {
-    if (lastHeard && Date.now() - lastHeard > PEER_GONE_MS) { peerGone(); return; }
+    if (lastHeard && Date.now() - lastHeard > PEER_GONE_MS && !stillThere(pc, lastHeard)) { peerGone(); return; }
     sendCtl({ t: 'hb', ts: performance.now() });
     if (myBattery) sendCtl({ t: 'stat', batt: myBattery });
   }, 4000);
@@ -1184,6 +1212,7 @@ async function relink() {
    so a fresh offer can be built on the spot. */
 function teardownPeer() {
   stopHeartbeat();
+  peerAway = false;
   lastHeard = 0;
   clearTimeout(recoverTimer);
   recovering = false;
@@ -2095,8 +2124,10 @@ function goLive() {
   armGuard();
   if (extras.length) afterGroupChange();
   else renderGroup();
-  /* Linked: from here the microphone is only held while talking. */
-  if (!live) scheduleMicRelease();
+  /* Linked: from here the microphone is held for the whole channel when
+     staying linked in the background, otherwise only while talking. */
+  if (stayLinked) acquireMic().catch(() => {});
+  else if (!live) scheduleMicRelease();
   if (!ui.views.live.hidden) return;
   stopScanner();
   show('live');
@@ -2169,6 +2200,7 @@ function hangUp() {
   remoteAnalyser = null;
   remoteLive = false;
   peerName = '';
+  peerAway = false;
   updateNames();
   lastLost = lastRecv = null;
   ui.remoteAudio.srcObject = null;
@@ -2755,7 +2787,7 @@ function startHubBeat() {
   hubTimer = setInterval(() => {
     const now = Date.now();
     joinedExtras().forEach(x => {
-      if (now - x.lastHeard > PEER_GONE_MS) { dropExtra(x, 'left the channel'); return; }
+      if (now - x.lastHeard > PEER_GONE_MS && !stillThere(x.pc, x.lastHeard)) { dropExtra(x, 'left the channel'); return; }
       sendTo(x, { t: 'hb', ts: performance.now() });
     });
   }, 4000);
@@ -4143,7 +4175,7 @@ ui.togHalf.onclick = () => {
    newer script wires up. Standing in for it keeps one absent node from
    aborting setup and leaving a dead screen. */
 ['vNet', 'btnRelink', 'sheet', 'btnSettings', 'btnSheetClose', 'micLvl', 'micVal',
-  'togAwake', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
+  'togAwake', 'togBg', 'installBar', 'installText', 'btnInstall', 'btnInstallHide',
   'nameIn', 'labelYou', 'labelThem', 'routeRow', 'btnEarpiece', 'btnSpeaker',
   'resumeBar', 'resumeText', 'btnResume', 'btnResumeHide',
   'voice', 'voiceFace', 'voiceName', 'updateBar', 'updateText', 'btnUpdate',
@@ -4227,6 +4259,14 @@ ui.micLvl.addEventListener('input', () => setMicGain(+ui.micLvl.value));
 ui.nameIn.addEventListener('input', () => setMyName(ui.nameIn.value, true));
 ui.nameIn.addEventListener('blur', () => { ui.nameIn.value = myName; });
 
+ui.togBg.onclick = () => {
+  stayLinked = !stayLinked;
+  ui.togBg.setAttribute('aria-pressed', String(stayLinked));
+  if (!channelUp) return;
+  if (stayLinked) acquireMic().catch(() => {});
+  else if (!live) scheduleMicRelease();
+};
+
 ui.togAwake.onclick = () => {
   keepAwake = !keepAwake;
   ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
@@ -4289,11 +4329,19 @@ window.addEventListener('blur', releaseHold);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     releaseHold();
-    /* Switching to another app frees the microphone for it straight away -
-       unless this phone is live in Open mode, which is meant to carry on
-       from a pocket. */
-    if (!live && channelUp) releaseMic();
-  } else requestWakeLock();
+    if (channelUp) sendAll({ t: 'away' });
+    /* Without "stay linked", switching to another app frees the microphone
+       for it straight away - unless this phone is live in Open mode, which
+       is meant to carry on from a pocket. */
+    if (!live && channelUp && !stayLinked) releaseMic();
+  } else {
+    requestWakeLock();
+    if (channelUp) {
+      sendAll({ t: 'back' });
+      /* Another app (a phone call) may have taken the microphone meanwhile. */
+      if (stayLinked) acquireMic().catch(() => {});
+    }
+  }
 });
 
 if (navigator.mediaDevices && 'ondevicechange' in navigator.mediaDevices) {
@@ -4318,6 +4366,7 @@ loadName();
 initInstall();
 initResume();
 ui.togAwake.setAttribute('aria-pressed', String(keepAwake));
+ui.togBg.setAttribute('aria-pressed', String(stayLinked));
 ui.togHalf.setAttribute('aria-pressed', String(halfDuplex));
 ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
 updateTalk();

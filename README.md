@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Twenty-one things have been added since the revert:
+as usual. The code is still based on version 12. Twenty-two things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -326,6 +326,33 @@ as usual. The code is still based on version 12. Twenty-one things have been add
   pasted codes, and Clear cache leaves Girgir 5G's cache, worker and settings
   in place.
   Not tested on phones.
+
+- **Staying linked in the background** (0.58, and Girgir 5G 0.02). Links
+  dropped about 15 seconds after one phone switched app or went to the home
+  screen. Two causes, both fixed:
+  - The app freed the microphone on leaving (0.49), and Android may pause a
+    background page that is neither capturing nor playing. A paused page
+    sends nothing, so the other phone took its silence for leaving. New
+    setting **Stay linked in the background**, on by default: the
+    microphone is held for the whole channel (nothing is sent unless you
+    talk), so Android treats it like a call. Other apps cannot record until
+    End; turning it off brings back 0.49's behaviour.
+  - Silence alone ended the link after 12 s. Now, while the connection
+    itself still reads *connected* (the browser answers the network's own
+    liveness checks even when the page is paused), a quiet phone gets up to
+    two minutes. A phone whose connection has really gone is still dropped
+    after 12 s, and End is still noticed at once. The hub applies the same
+    rule to group members.
+
+  A phone going into another app now says so, and the other shows
+  *THEY'RE IN ANOTHER APP* (or the name) until it is back. Older versions
+  ignore the message.
+
+  Tested in Chrome with two linked tabs, one made silent the way a paused
+  page is (no timers, nothing sent, connection up) for 45 s: 0.57 dropped
+  after 15 s, 0.58 stayed linked and carried on; End still ends the link
+  in about 8 s. Not tested on phones. An iPhone still pauses web pages in
+  the background whatever the page does; only a native app gets past that.
 
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
