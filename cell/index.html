@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Girgir 5G</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0a0e10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Girgir 5G">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="cell.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="dot" id="brandDot"></span>
+    <span>GIRGIR <b class="g5">5G</b></span>
+  </div>
+  <div class="bar-right">
+    <span class="bars" id="bars" data-q="0" aria-label="Link quality"><i></i><i></i><i></i><i></i></span>
+    <span class="pill" id="statePill" data-state="idle">IDLE</span>
+    <button class="icon-btn" id="btnSettings" aria-label="Settings">&#9881;</button>
+    <button class="icon-btn" id="btnHelp" aria-label="Setup guide">?</button>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ============ SETUP ============ -->
+  <section class="view" id="viewSetup">
+    <div class="stack">
+      <div class="install" id="updateBar" hidden>
+        <p class="install-text" id="updateText"></p>
+        <button class="btn small" id="btnUpdate">Update</button>
+      </div>
+
+      <div class="install" id="resumeBar" hidden>
+        <p class="install-text" id="resumeText"></p>
+        <button class="btn small" id="btnResume">Return to channel</button>
+        <button class="icon-btn" id="btnResumeHide" aria-label="Dismiss">&times;</button>
+      </div>
+
+      <div class="install" id="installBar" hidden>
+        <p class="install-text" id="installText"></p>
+        <button class="btn small" id="btnInstall" hidden>Install</button>
+        <button class="icon-btn" id="btnInstallHide" aria-label="Already installed">&times;</button>
+      </div>
+
+
+      <h1 class="headline">Talk from anywhere</h1>
+      <p class="prose">Send an invite by WhatsApp, AirDrop or Bluetooth. Talk over 4G, 5G or any internet.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnCreate">Invite someone</button>
+        <button class="btn" id="btnJoin">Join</button>
+      </div>
+
+      <div class="backup" hidden>
+        <svg class="backup-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5a12 12 0 0 1 17 0"/><path d="M6.5 12.8a7.5 7.5 0 0 1 11 0"/><path d="M9.6 16a3 3 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1.2" class="solid"/></svg>
+        <span class="backup-text"><b class="backup-title">Offline mode</b><span class="backup-sub"></span></span>
+        <button class="btn small backup-btn">Install</button>
+        <button class="icon-btn backup-close" aria-label="Girgir is installed" title="It is installed" hidden>&times;</button>
+      </div>
+
+      <nav class="tools" aria-label="More">
+        <button class="tool" id="btnGuide">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h5.5A3.5 3.5 0 0 1 12 8.5V20a2.5 2.5 0 0 0-2.5-2.5H3z"/><path d="M21 5h-5.5A3.5 3.5 0 0 0 12 8.5V20a2.5 2.5 0 0 1 2.5-2.5H21z"/></svg>
+          <span>How to</span>
+        </button>
+        <button class="tool" id="btnDrill">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="2.4" class="solid"/><rect x="10.5" y="10" width="10.5" height="4" rx="2" class="solid"/></svg>
+          <span>Morse</span>
+        </button>
+      </nav>
+
+      <details class="trouble">
+        <summary>Trouble connecting?</summary>
+        <dl>
+          <dt>Invite too old</dt>
+          <dd>An invite works for about two minutes. Tap <b>Cancel</b> and send a fresh one.</dd>
+          <dt>The reply opened in a new tab</dt>
+          <dd>Tap <b>Copy reply</b> there, come back here and tap <b>Paste reply</b>.</dd>
+          <dt>No mobile data</dt>
+          <dd>Together? Use <b>Offline mode</b>: it talks over Wi-Fi or a hotspot with no internet.</dd>
+        </dl>
+      </details>
+
+      <p class="ver-foot" id="verFoot"></p>
+    </div>
+  </section>
+
+  <!-- ============ MORSE PRACTICE ============ -->
+  <section class="view" id="viewDrill" hidden>
+    <div class="stack">
+      <p class="step">PRACTICE &middot; NO ONE ELSE NEEDED</p>
+
+      <div class="toggles three" role="group" aria-label="Practice mode">
+        <button class="tog" id="btnDrillSend" aria-pressed="true">Send it</button>
+        <button class="tog" id="btnDrillHear" aria-pressed="false">Hear it</button>
+        <button class="tog" id="btnDrillLive" aria-pressed="false">Live</button>
+      </div>
+      <div class="toggles" id="drillTogs">
+        <button class="tog" id="btnDrillDigits" aria-pressed="false">+ numbers</button>
+        <button class="tog" id="btnDrillMarks" aria-pressed="false">+ punctuation</button>
+      </div>
+
+      <div class="kx-phrase" id="freePhrase" aria-live="polite" hidden></div>
+      <div id="freeKeyer" hidden></div>
+
+      <div class="drill-card drill-only">
+        <span class="drill-prompt" id="drillPrompt">&mdash;</span>
+        <span class="drill-sub" id="drillSub">key this one</span>
+      </div>
+
+      <div class="morse" id="drillPanel">
+        <div class="morse-head">
+          <span class="morse-syms" id="drillSyms"></span>
+          <button class="tog tiny" id="btnDrillSkip">Skip</button>
+        </div>
+        <p class="morse-cands" id="drillCands"></p>
+      </div>
+
+      <div class="drill-choices" id="drillChoices" hidden></div>
+      <button class="tog" id="btnDrillReplay" hidden>Play it again</button>
+
+      <button class="talk" id="drillKey">
+        <span class="talk-label">KEY &middot; TAP = DOT &middot; HOLD = DASH</span>
+      </button>
+
+      <p class="drill-feedback drill-only" id="drillFeedback"></p>
+      <p class="note drill-only" id="drillScore">streak 0 &middot; best 0</p>
+      <div class="btn-row">
+        <button class="btn" id="btnDrillChart">Full chart</button>
+        <button class="btn ghost" id="btnDrillBack">Back</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ GUIDE ============ -->
+  <section class="view" id="viewHelp" hidden>
+    <div class="stack">
+      <h1 class="headline">How to connect</h1>
+
+      <ol class="guide text-only">
+        <li>
+          <h2>1 &middot; Mobile data on</h2>
+          <p>Both phones online: 4G, 5G or any Wi-Fi with internet. You can be anywhere.</p>
+        </li>
+        <li>
+          <h2>2 &middot; Send an invite</h2>
+          <p>Tap <b>Invite someone</b>, then <b>Send invite</b>, and pick WhatsApp, AirDrop, Bluetooth or anything else.</p>
+        </li>
+        <li>
+          <h2>3 &middot; Reply</h2>
+          <p>The other opens the link and taps <b>Join</b>, then <b>Send reply</b> back the same way.</p>
+        </li>
+        <li>
+          <h2>4 &middot; Talk</h2>
+          <p>The first phone opens the reply link, or taps <b>Paste reply</b>. Linked. Send it within about two minutes.</p>
+        </li>
+        <li>
+          <h2>Signal gone?</h2>
+          <p>Tap <b>Switch to offline mode</b>. That is Girgir, the Wi-Fi version: together on one Wi-Fi or a hotspot, it needs no internet. Install it once while you are online.</p>
+        </li>
+      </ol>
+
+      <details class="more">
+        <summary>Install it</summary>
+        <p><b>Android:</b> browser menu &rarr; <b>Install</b> or <b>Add to Home screen</b>.</p>
+        <p><b>iPhone, iPad:</b> Safari &rarr; <b>Share</b> &rarr; <b>Add to Home Screen</b>.</p>
+        <p>Install <a href="../?from=5g" target="_blank" rel="noopener">Girgir</a> (Wi-Fi) the same way. They are two separate apps that point to each other.</p>
+      </details>
+
+      <details class="more">
+        <summary>Talk modes</summary>
+        <p><b>Open</b> &mdash; microphone always live. Best with earphones.</p>
+        <p><b>Latch</b> &mdash; tap to talk, tap again to stop.</p>
+        <p><b>Hold</b> &mdash; live only while pressed. Best on a speaker.</p>
+        <p>Each phone picks its own.</p>
+      </details>
+
+      <details class="more">
+        <summary>More than two phones</summary>
+        <p><b>+ Person</b> on a linked phone makes a new invite. Send it to the new phone; it opens the link, taps <b>Join</b> and sends its reply back.</p>
+        <p>That phone becomes the <b>hub</b>: it passes everyone's voice, Morse and pings to everyone else, so it must stay in the channel. Up to five extra people per hub.</p>
+        <p>Everyone in the channel is a circle with their initial. A ring in their colour grows while they talk.</p>
+        <p>On the hub, tap <b>&times;</b> on a circle to take that phone off the channel.</p>
+      </details>
+
+      <details class="more">
+        <summary>What the readouts mean</summary>
+      <dl class="legend">
+        <dt>Bars, top right</dt><dd>Link quality, worked out from round-trip time, packet loss and jitter. Four bars is a clean link.</dd>
+        <dt>LINK</dt><dd>Round-trip time and the share of audio packets being lost.</dd>
+        <dt>BATT / THEIRS</dt><dd>Battery on each phone. The iPhone cannot report its own level to a web app, so it shows a dash there.</dd>
+        <dt>INPUT</dt><dd>Which microphone is actually open — <b>EARBUD</b>, <b>WIRED</b> or <b>BUILT-IN</b> — so a headset that failed to connect is obvious rather than silent.</dd>
+        <dt>NET</dt><dd>How the voice travels. <b>direct</b>: phone to phone over the internet. <b>same Wi-Fi</b>: both on one network. <b>relay</b>: through a relay, for networks that block direct links. Still encrypted end to end.</dd>
+        <dt>OUT</dt><dd>Where their voice comes out. A picker appears where the phone allows one; otherwise it names what the system does — earpiece on iPhone, loudspeaker on Android.</dd>
+        <dt>Meters</dt><dd>Live audio level — yours in amber, theirs in teal. Set a name in settings and the labels use it instead of YOU and THEM.</dd>
+      </dl>
+      </details>
+
+      <h2 class="sub">Storage on this phone</h2>
+      <p class="prose">No logs, no history, no recordings. It remembers your name (shared with Girgir) and that it is installed. Invites travel only through the apps you send them with; no Girgir server sees them.</p>
+      <div class="storage">
+        <span>Version <b id="verNow">—</b><span id="verLatest"></span></span>
+        <span>Using <b id="storeUsed">—</b></span>
+        <button class="btn small" id="btnClear">Clear cache</button>
+      </div>
+
+      <button class="btn" id="btnHelpBack">Back</button>
+    </div>
+  </section>
+
+  <!-- ============ SHOW CODE ============ -->
+  <section class="view" id="viewCode" hidden>
+    <div class="stack">
+      <p class="step" id="codeStep">STEP 1 OF 2</p>
+      <p class="prose" id="codeHint">Send this invite to the other phone.</p>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnShare">Send invite</button>
+      </div>
+      <div class="btn-row" id="replyRow">
+        <button class="btn" id="btnPasteReply">Paste reply</button>
+      </div>
+      <p class="note" id="codeAge"></p>
+
+      <details class="fallback" id="qrBox">
+        <summary>Other ways to send it</summary>
+        <div class="btn-row">
+          <button class="btn small" id="btnCopy">Copy link</button>
+          <button class="btn small" id="btnNext">Scan their QR</button>
+        </div>
+        <p class="note">Together? Let them scan this.</p>
+        <div class="qr-wrap"><canvas id="qrCanvas"></canvas></div>
+        <div class="watching" id="watching" hidden>
+          <div class="watch-cam"><video id="codeCam" playsinline muted></video></div>
+          <div class="watch-body"><button class="link cam-switch-link" id="btnCamSwitch2" hidden>Blurry? Switch camera</button></div>
+        </div>
+        <textarea id="codeText" readonly rows="2" spellcheck="false" hidden></textarea>
+      </details>
+      <button class="link" id="btnCancel1">Cancel</button>
+    </div>
+  </section>
+
+  <!-- ============ SCAN ============ -->
+  <section class="view" id="viewScan" hidden>
+    <div class="stack">
+      <p class="step" id="scanStep">JOIN</p>
+      <p class="prose" id="scanHint">Open the invite link they sent you, or paste it here.</p>
+      <div id="pasteBox">
+        <div class="btn-row">
+          <button class="btn primary" id="btnPasteClip">Paste invite</button>
+        </div>
+        <textarea class="paste-area" id="pasteText" rows="3" spellcheck="false" placeholder="Or paste the link or code here"></textarea>
+        <div class="btn-row">
+          <button class="btn" id="btnPaste">Use this</button>
+          <button class="btn ghost" id="btnScanQR">Scan a QR</button>
+        </div>
+      </div>
+      <div class="backup" hidden>
+        <svg class="backup-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 9.5a12 12 0 0 1 17 0"/><path d="M6.5 12.8a7.5 7.5 0 0 1 11 0"/><path d="M9.6 16a3 3 0 0 1 4.8 0"/><circle cx="12" cy="19" r="1.2" class="solid"/></svg>
+        <span class="backup-text"><b class="backup-title">Offline mode</b><span class="backup-sub"></span></span>
+        <button class="btn small backup-btn">Install</button>
+      </div>
+      <div class="cam-wrap" hidden>
+        <video id="cam" playsinline muted></video>
+        <div class="reticle"></div>
+        <button class="cam-switch" id="btnCamSwitch" hidden>Switch camera</button>
+      </div>
+      <button class="link" id="btnCancel2">Cancel</button>
+    </div>
+  </section>
+
+  <!-- ============ REPLY LANDING ============ -->
+  <section class="view" id="viewLanding" hidden>
+    <div class="stack">
+      <p class="step" id="landStep">REPLY</p>
+      <h1 class="headline" id="landHead">This is their reply</h1>
+      <p class="prose" id="landText">Copy it, go back to Girgir 5G and tap <b>Paste reply</b>.</p>
+      <div class="btn-row">
+        <button class="btn primary" id="btnLandCopy">Copy reply</button>
+      </div>
+      <button class="link" id="btnLandHome">Start over here instead</button>
+    </div>
+  </section>
+
+  <!-- ============ LIVE ============ -->
+  <section class="view live" id="viewLive" hidden>
+
+    <div class="readout">
+      <div class="status" id="statusText">QUIET</div>
+      <div class="live-banner" id="liveBanner" hidden>MIC LIVE</div>
+    </div>
+
+    <div class="meters">
+      <div class="meter">
+        <span class="meter-label" id="labelYou">YOU</span>
+        <div class="track"><div class="fill tx" id="meterYou"></div></div>
+      </div>
+      <div class="meter">
+        <span class="meter-label" id="labelThem">THEM</span>
+        <div class="track"><div class="fill rx" id="meterThem"></div></div>
+      </div>
+    </div>
+
+    <div class="strip">
+      <div class="cell"><span class="k">LINK</span><span class="v" id="vLink">—</span></div>
+      <div class="cell"><span class="k">BATT</span><span class="v" id="vBattYou">—</span></div>
+      <div class="cell"><span class="k">THEIRS</span><span class="v" id="vBattThem">—</span></div>
+      <div class="cell"><span class="k">INPUT</span><span class="v" id="vInput">—</span></div>
+    </div>
+
+    <div class="group-row" id="groupRow" aria-label="Phones in this channel" hidden></div>
+
+    <div class="install" id="dropBar" hidden>
+      <p class="install-text" id="dropText"></p>
+      <a class="btn small primary" id="linkDropWifi" href="../?from=5g" target="_blank" rel="noopener">Switch to offline mode</a>
+      <button class="btn small" id="btnDropPair">Send new invite</button>
+    </div>
+
+    <div class="vol netrow">
+      <span class="k">NET</span>
+      <span class="v" id="vNet">&mdash;</span>
+    </div>
+
+    <div class="modes" role="group" aria-label="Talk mode">
+      <button class="mode" data-mode="open">OPEN</button>
+      <button class="mode" data-mode="latch">LATCH</button>
+      <button class="mode" data-mode="hold">HOLD</button>
+    </div>
+
+    <div class="console">
+      <button class="ping voice" id="voiceBtn" aria-pressed="false">
+        <span class="face" id="voiceFace">&#128528;</span>
+        <small id="voiceName">straight</small>
+      </button>
+      <button class="talk" id="talkBtn">
+        <span class="talk-label" id="talkLabel">HOLD TO TALK</span>
+      </button>
+      <button class="ping" id="pingBtn">
+        <span>PING</span>
+        <small id="pingSub">hold = !</small>
+      </button>
+    </div>
+
+    <div class="toggles">
+      <button class="tog" id="btnRelink">Relink</button>
+      <button class="tog" id="btnMorse" aria-pressed="false">Morse</button>
+      <button class="tog" id="btnAdd">+ Person</button>
+      <button class="tog danger" id="btnHangup">End</button>
+    </div>
+
+    <div class="kx-phrase" id="callPhrase" aria-live="polite" hidden></div>
+    <div id="callKeyer" hidden></div>
+
+  </section>
+
+</main>
+
+<div class="sheet" id="morseSheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Morse chart">
+    <div class="sheet-head">
+      <h2>Morse chart</h2>
+      <button class="icon-btn" id="btnMorseClose" aria-label="Close chart">&times;</button>
+    </div>
+    <dl class="morse-how">
+      <dt>&middot;</dt><dd>dot &mdash; a quick tap</dd>
+      <dt>&ndash;</dt><dd>dash &mdash; hold about three times as long</dd>
+      <dt>&#8202;</dt><dd>stop for a moment and the character is done</dd>
+    </dl>
+    <p class="note">Tap any character to hear it. Numbers follow a rule: 1&ndash;5 start
+       with that many dots, 6&ndash;0 start with dashes, and every one is five long.</p>
+    <div id="morseChart"></div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" id="btnSheetClose" aria-label="Close settings">&times;</button>
+    </div>
+
+    <div class="vol">
+      <span class="k">NAME</span>
+      <input type="text" id="nameIn" maxlength="64" dir="auto" placeholder="optional"
+             autocomplete="off" autocapitalize="words" spellcheck="false"
+             aria-label="Your name, shown on the other phone">
+    </div>
+    <p class="note">Shown on their phone instead of THEM. Optional.</p>
+
+    <div class="vol">
+      <span class="k">MIC</span>
+      <input type="range" id="micLvl" min="0" max="200" value="100" aria-label="Microphone level">
+      <span class="v" id="micVal">100</span>
+    </div>
+    <p class="note">How loud you are sent. Past 100 lifts a quiet headset; too far distorts.</p>
+
+    <div class="vol" id="volRow" hidden>
+      <span class="k">VOL</span>
+      <input type="range" id="vol" min="0" max="100" value="100" aria-label="Incoming volume">
+      <span class="v" id="volVal">100</span>
+    </div>
+    <p class="note" id="volNote" hidden>Use the phone's volume buttons to set the incoming level.</p>
+
+    <div class="vol" id="outRow">
+      <span class="k">OUT</span>
+      <select id="outSel" aria-label="Audio output" hidden></select>
+      <span class="routes" id="routeRow" hidden role="group" aria-label="Where sound comes out">
+        <button class="tog" id="btnEarpiece" aria-pressed="true">Earpiece</button>
+        <button class="tog" id="btnSpeaker" aria-pressed="false">Speaker</button>
+      </span>
+      <span class="outnote" id="outNote">—</span>
+    </div>
+
+    <div class="switches">
+      <button class="sw" id="togHalf" aria-pressed="true">
+        <span class="sw-text"><b>Half duplex</b><span>Mutes them while you talk.</span><i>So your own voice never echoes back. Hold and Latch only.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togRoger" aria-pressed="true">
+        <span class="sw-text"><b>Roger beep</b><span>A short chirp on their phone when you let go.</span><i>So they know you're done and it's their turn.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togAwake" aria-pressed="true">
+        <span class="sw-text"><b>Keep screen on</b><span>Stops the screen sleeping while linked.</span><i>Turn off to pocket an Android, best in Open. An iPhone has to stay on.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+      <button class="sw" id="togRange" aria-pressed="false">
+        <span class="sw-text"><b>Data saver</b><span>Sends half the voice data. On by default.</span><i>Saves your data plan and gets through a weak signal. Sounds a bit flatter. Switches both phones.</i></span>
+        <span class="sw-knob" aria-hidden="true"></span>
+      </button>
+    </div>
+
+  </div>
+</div>
+
+<div class="flash" id="flash" hidden></div>
+<div class="toast" id="toast" hidden></div>
+<audio id="remoteAudio" autoplay playsinline></audio>
+
+<script src="../vendor/qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

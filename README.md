@@ -20,7 +20,7 @@ one installed, so a phone running 35 would never be offered a 12, and a revert
 shipped as 12 would have reached nobody. From 46 the app shows versions as
 **0.46**, at the foot of the main page and in the guide; underneath, the
 updater still compares whole numbers (46 > 45), so older phones are offered it
-as usual. The code is still based on version 12. Twenty things have been added since the revert:
+as usual. The code is still based on version 12. Twenty-one things have been added since the revert:
 
 - **Test this phone** on the main page, which opens `diag.html` (37).
 - **Wi-Fi routes only** (38). The primary phone, the one that almost never
@@ -312,6 +312,21 @@ as usual. The code is still based on version 12. Twenty things have been added s
   arriving during a replay, BT after a word, and Clear mid-word. Not tested
   on phones.
 
+- **Girgir 5G beside it** (0.57). A second, separate app at `/cell/` for
+  talking over mobile data (see [Girgir 5G](#girgir-5g-the-mobile-data-version)
+  below). Girgir itself changes only so the two can share one site: its
+  updater, *Clear cache* and service worker now touch only Girgir's own
+  caches, worker and stored keys (before, they wiped everything on the site,
+  which would have taken Girgir 5G with them), and its worker no longer
+  answers for `/cell/`. The main page gains a line, *Far apart? Girgir 5G
+  talks over mobile data*, and *Trouble connecting?* points there too. Opened
+  from Girgir 5G as its offline mode (`?from=5g`), it says to pair again
+  here; sent to be installed (`?install=5g`), it says how to install it and to
+  go back to Girgir 5G. Tested in headless Chrome: two tabs still pair by
+  pasted codes, and Clear cache leaves Girgir 5G's cache, worker and settings
+  in place.
+  Not tested on phones.
+
 `diag.html` is deliberately *not* reverted. It is a separate page, not part of
 the app, and it is the only instrument that can tell a broken scanner from a
 broken network - which is still unsettled. `/v12/` also stays, as an untouched
@@ -325,6 +340,79 @@ fault in the code from a fault in that one phone. Test with Android 2 first.
 
 Version 12's updater predates the fix in 13 that made it replace the files, and
 its update message was reported as refusing to go away. Both are back.
+
+## Girgir 5G, the mobile data version
+
+A separate app at **`/cell/`**
+(`https://mottozo-gettingthere.github.io/girgir/cell/`), installed on its own
+and shown with a 5G badge on its icon. Girgir stays exactly what it was: Wi-Fi
+or a hotspot, no internet. Girgir 5G is for when the phones are apart.
+
+**Pairing by message.** One phone taps *Invite someone*, then *Send invite*,
+and picks WhatsApp, AirDrop, Bluetooth or anything else in the share sheet.
+The invite is a link to Girgir 5G with the code (and the sender's name, if
+set) after the `#`. That part never leaves the phone in a web request, so no
+server sees it, GitHub included; only the app it is sent through does. The
+other phone opens the link and sees "Bea invites you to talk" with one *Join*
+button, then sends its reply back the same way. Opening the reply link on the
+first phone hands it to the waiting Girgir 5G by itself (same browser), or
+shows it for copying, and *Paste reply* reads it from the clipboard. A pasted
+chat message works whole; the code is picked out of it. Copying the link, and
+QR codes for phones that are together, are folded under *Other ways to send
+it*.
+
+**Routes and the relay.** Every route a phone has goes into its code: Wi-Fi,
+carrier and IPv6 addresses, plus its outside address as seen by a free public
+STUN server (Google's and Cloudflare's). Some mobile networks will not let two
+phones reach each other directly; for those the voice goes through a
+Cloudflare TURN relay, still encrypted end to end. The app gets short-lived
+relay credentials from a small Cloudflare Worker (`turn-worker/`, with its
+own setup guide) set in `RELAY_ENDPOINT` at the top of `cell/app.js`. Empty
+means direct links only; an unreachable relay is skipped without fuss. There
+is nothing to set on the phones. *NET* on the live screen says how the voice
+is going: *direct*, *same Wi-Fi* or *relay*. An invite should be answered
+within about two minutes, as a mobile network forgets an idle outside address
+after that; the code screen counts its age.
+
+**Offline mode is Girgir.** Girgir 5G treats Girgir, the Wi-Fi app, as its
+offline mode, and one card on its main screen (and under *Join* on an
+invite) says where that stands:
+- **not installed:** *Offline mode — keeps you talking when mobile data
+  drops* with **Install**, which opens Girgir with a matching install prompt
+  (Chrome's install button, the menu route, or Share → Add to Home Screen on
+  iPhone);
+- **installed:** a quiet *Offline mode ready ✓* line, and nothing on an invite;
+- **no internet:** *No internet* with **Open**.
+
+Installed is what Girgir records in the storage the two apps share, or what
+Chrome lists as a related installed app. An iPhone home-screen app cannot see
+either, so there the card has a × to close it once Girgir is on the home
+screen. Separately, whenever Girgir 5G runs online it loads Girgir's service
+worker, so Girgir is already saved on the phone before data drops, even if
+never installed. When the 5G link is lost (failed, quiet for 10 seconds, the
+other phone gone, or this phone offline), Girgir 5G says so and offers
+**Switch to offline mode**, which ends the 5G channel and opens Girgir, or
+**Send new invite**. Girgir links back with *Far apart?* on its main page.
+The two share your name; everything else is kept apart (`girgir5g-` keys and
+caches, its own service worker).
+
+**What else differs from Girgir.** Data saver (Girgir's *Long range*, about
+half the voice data) is on by default; either phone turns it off for both.
+A drop no longer jumps to standby. Groups, Morse, pings, voices and circles
+are all as in Girgir 0.56, which Girgir 5G was copied from. Shared files
+(fonts, the QR library) are read from Girgir's `vendor/`.
+
+Tested in headless Chrome with two separate browser profiles as the two
+phones, on one machine: invite link → "Bea invites you to talk" → Join →
+reply → linked, with the reply handed over by its link or pasted as a whole
+chat message; pasting your own invite is refused; the offline-mode card in its
+three states, and Girgir's install prompt it leads to; relay credentials
+fetched from a stand-in endpoint and pairing still working when the relay
+itself cannot be reached; data saver following the other phone; End on one
+side bringing up *Switch to offline mode* on the other, which opens Girgir.
+The Worker was tested against a mocked Cloudflare API (origins, port 53,
+missing secrets, refusals). **Not tested on phones, over a real mobile
+network, or against Cloudflare's live API.**
 
 ---
 

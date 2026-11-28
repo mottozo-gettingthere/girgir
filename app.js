@@ -15,7 +15,7 @@ const $ = id => document.getElementById(id);
    updater only ever offers a build newer than the installed one, and a phone
    running 35 would never be offered a 12, so a revert shipped as 12 would
    reach nobody. The settings line says which code is actually running. */
-const APP_VERSION = 56;
+const APP_VERSION = 57;
 const CODE_OF = 12;
 
 /* Shown as 0.NN. The updater still compares the whole number, so a phone on
@@ -27,6 +27,9 @@ const INSTALLED_KEY = 'girgir-installed';
 const NAME_KEY = 'girgir-name';
 const LAST_KEY = 'girgir-last';
 const KEEP_KEYS = [INSTALLED_KEY, NAME_KEY, LAST_KEY];
+/* Girgir 5G (/cell/) is a separate app on this same origin, so it shares
+   this storage. Its keys start with this and are left alone. */
+const OTHER_APP_PREFIX = 'girgir5g-';
 
 const ui = {
   brandDot: $('brandDot'), pill: $('statePill'), bars: $('bars'), help: $('btnHelp'),
@@ -114,9 +117,12 @@ function purgeStoredData() {
          tell it has already been added to the home screen, so without this
          the install hint would nag forever in a Safari tab. One boolean -
          no call data of any kind survives a launch. */
-      const kept = KEEP_KEYS.map(k => [k, localStorage.getItem(k)]);
-      localStorage.clear();
-      kept.forEach(([k, v]) => { if (v !== null) localStorage.setItem(k, v); });
+      const drop = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && !KEEP_KEYS.includes(k) && !k.startsWith(OTHER_APP_PREFIX)) drop.push(k);
+      }
+      drop.forEach(k => localStorage.removeItem(k));
     }
     sessionStorage.clear();
   } catch (e) { /* storage blocked */ }
@@ -1230,6 +1236,26 @@ function setSessionState(playing) {
    the request open for years - so the best available there is pointing
    straight at the share sheet instead of letting people hunt for it. */
 let installEvent = null;
+let installFor5g = false;
+
+/* Girgir 5G's "Install offline mode": say what this is and what to do, even
+   before (or without) the browser offering its own install button. */
+function showInstallFor5g() {
+  ui.btnInstall.hidden = !installEvent;
+  if (isStandalone() || alreadyInstalled()) {
+    ui.installText.innerHTML = '<b>Offline mode is installed.</b> Go back to Girgir 5G.';
+    ui.btnInstall.hidden = true;
+  } else if (looksLikeIOS()) {
+    ui.installText.innerHTML = '<b>Install offline mode:</b> tap <b>Share</b>, then ' +
+      '<b>Add to Home Screen</b>. Then go back to Girgir 5G.';
+  } else if (installEvent) {
+    ui.installText.innerHTML = '<b>Install offline mode</b>, then go back to Girgir 5G.';
+  } else {
+    ui.installText.innerHTML = '<b>Install offline mode:</b> browser menu &rarr; ' +
+      '<b>Install app</b> or <b>Add to Home screen</b>. Then go back to Girgir 5G.';
+  }
+  ui.installBar.hidden = false;
+}
 
 function isStandalone() {
   return window.matchMedia('(display-mode: standalone)').matches ||
@@ -1448,16 +1474,7 @@ async function checkVersion() {
 async function applyUpdate() {
   ui.btnUpdate.disabled = true;
   ui.updateText.textContent = 'Updating\u2026';
-  try {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k)));
-  } catch (e) { /* no cache storage */ }
-  try {
-    if (navigator.serviceWorker) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
-    }
-  } catch (e) { /* ignore */ }
+  await dropOwnCaches();
   location.reload();
 }
 
@@ -3958,6 +3975,22 @@ function openCallKeyer(on) {
 
 /* ---------------- storage ---------------- */
 
+/* Girgir's own caches and worker only. Girgir 5G lives on the same origin
+   under /cell/ with its own; clearing or updating here must not touch it. */
+async function dropOwnCaches() {
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k.startsWith('girgir-v')).map(k => caches.delete(k)));
+  } catch (e) { /* no cache storage */ }
+  try {
+    if (navigator.serviceWorker) {
+      const own = new URL('./', location.href).href;
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.filter(r => r.scope === own).map(r => r.unregister()));
+    }
+  } catch (e) { /* ignore */ }
+}
+
 async function renderStorage() {
   let text = '—';
   try {
@@ -3981,20 +4014,11 @@ async function clearData() {
   }
   clearArmed = 0;
   ui.btnClear.textContent = 'Clear cache';
-  try {
-    const keys = await caches.keys();
-    await Promise.all(keys.map(k => caches.delete(k)));
-  } catch (e) { /* no cache storage */ }
+  await dropOwnCaches();
   try { localStorage.removeItem('girgir'); } catch (e) {}
   try { localStorage.removeItem(INSTALLED_KEY); } catch (e) {}
   try { localStorage.removeItem(NAME_KEY); } catch (e) {}
   try { localStorage.removeItem(LAST_KEY); } catch (e) {}
-  try {
-    if (navigator.serviceWorker) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map(r => r.unregister()));
-    }
-  } catch (e) {}
   toast('Cleared. Reload while online to reinstall.', 6000);
   renderStorage();
 }
@@ -4213,6 +4237,7 @@ ui.togAwake.onclick = () => {
 window.addEventListener('beforeinstallprompt', e => {
   e.preventDefault();
   installEvent = e;
+  if (installFor5g) { showInstallFor5g(); return; }
   if (isStandalone() || alreadyInstalled()) return;
   ui.installText.textContent = 'Install it so it runs with no internet.';
   ui.btnInstall.hidden = false;
@@ -4222,6 +4247,7 @@ window.addEventListener('beforeinstallprompt', e => {
 window.addEventListener('appinstalled', () => {
   installEvent = null;
   markInstalled();
+  if (installFor5g) showInstallFor5g();
 });
 
 ui.btnInstall.onclick = async () => {
@@ -4232,6 +4258,7 @@ ui.btnInstall.onclick = async () => {
   installEvent = null;
   ui.btnInstall.hidden = true;
   if (outcome === 'accepted') markInstalled();
+  if (installFor5g) showInstallFor5g();
 };
 
 ui.btnInstallHide.onclick = markInstalled;
@@ -4296,6 +4323,21 @@ ui.togRoger.setAttribute('aria-pressed', String(rogerBeep));
 updateTalk();
 setPill('idle', 'IDLE');
 initBattery();
+
+/* Sent here by Girgir 5G: to switch because mobile data dropped
+   (?from=5g), or to install this app as its offline mode (?install=5g). */
+try {
+  const q = new URLSearchParams(location.search);
+  if (q.get('from') === '5g') {
+    history.replaceState(null, '', location.pathname);
+    toast('Offline mode. Pair again here: Create on one phone, Join on the other, ' +
+      'both on the same Wi-Fi or hotspot.', 9000);
+  } else if (q.get('install') === '5g') {
+    history.replaceState(null, '', location.pathname);
+    installFor5g = true;
+    showInstallFor5g();
+  }
+} catch (e) { /* ignore */ }
 
 if (!navigator.mediaDevices || !window.RTCPeerConnection) {
   ui.btnCreate.disabled = ui.btnJoin.disabled = true;

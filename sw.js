@@ -2,7 +2,7 @@
    network. vendor/jsQR.min.js is deliberately NOT precached — phones whose browser
    decodes QR codes natively never download it, and those that need it fetch it on
    first run and get it cached by the runtime handler below. */
-const CACHE = 'girgir-v56';
+const CACHE = 'girgir-v57';
 const ASSETS = [
   './',
   'index.html',
@@ -32,7 +32,11 @@ self.addEventListener('install', ev => {
 self.addEventListener('activate', ev => {
   ev.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      /* Only Girgir's own old caches: Girgir 5G (/cell/) shares this origin
+         and keeps its caches under girgir5g-. */
+      .then(keys => Promise.all(keys
+        .filter(k => k.startsWith('girgir-v') && k !== CACHE)
+        .map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -41,6 +45,8 @@ self.addEventListener('fetch', ev => {
   const req = ev.request;
   const url = new URL(req.url);
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
+  /* Girgir 5G is a separate app with its own worker; never answer for it. */
+  if (url.pathname.includes('/cell/')) return;
 
   /* version.json is how the app learns a newer build exists, so it must never
      be answered from the cache - that would only ever report itself. */
