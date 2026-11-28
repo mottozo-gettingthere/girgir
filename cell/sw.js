@@ -3,7 +3,7 @@
    origin and keeps its caches to itself the same way. The shared fonts and
    QR code library are fetched from Girgir's vendor folder. */
 const PREFIX = 'girgir5g-';
-const CACHE = PREFIX + 'v1';
+const CACHE = PREFIX + 'v2';
 const ASSETS = [
   './',
   'index.html',
